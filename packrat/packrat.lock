@@ -323,13 +323,6 @@ Version: 1.2-4
 Hash: 4ffcf86fffee89e7b859f760528dd545
 Requires: lattice
 
-Package: spatialpred
-Source: source
-Version: 1.0
-Hash: 0a7abe946cc5246db6a3c673ab2f83e8
-Requires: foreach, sp, mgcv, maptools, rgeos
-SourcePath: ~/Documents/denguemodeling/spamd/trunk/packages/spatialpred
-
 Package: stringi
 Source: CRAN
 Version: 1.1.3
