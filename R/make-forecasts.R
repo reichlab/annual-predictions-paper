@@ -1,6 +1,4 @@
 library(dplyr)
-library(dengueThailand)
-library(mgcv)
 # devtools::install_github("krlmlr/here")
 library(doMC)
 registerDoMC(20)

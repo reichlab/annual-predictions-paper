@@ -3,7 +3,6 @@
 
 library(dengueThailand)
 library(dplyr)
-# library(readr)
 # devtools::install_github("krlmlr/here")
 
 data("thai_prov_data")
