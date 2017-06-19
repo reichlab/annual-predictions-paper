@@ -1,0 +1,515 @@
+\documentclass[11pt]{article}
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amssymb,amsmath}
+\usepackage{microtype}
+\usepackage{cite}
+\usepackage{multirow}
+\usepackage{hhline}
+\usepackage{enumerate}
+\usepackage[english]{babel}
+\usepackage{wrapfig}
+\usepackage{multicol}
+\usepackage{textcomp}
+\usepackage{float}
+\usepackage{xr-hyper}
+\externaldocument[S-]{Lauer-annual-DHF-supplement}
+\allowdisplaybreaks[2]
+\usepackage{hyperref}
+\usepackage{setspace}
+\onehalfspacing
+
+\makeatletter
+\renewcommand{\maketitle}{\bgroup\setlength{\parindent}{0pt}
+\begin{flushleft}
+  \textbf{\@title}
+
+  \@author
+
+  \@date
+\end{flushleft}\egroup
+}
+\makeatother
+
+\title{Prospective forecasts of annual dengue hemorrhagic fever incidence in Thailand, 2010-2014}
+\author{Stephen A. Lauer*, Krzysztof Sakrejda, Evan L. Ray, Lindsay T. Keegan, Qifang Bi, \\ Paphanij Suangtho, Soawapak Hinjoy, Sopon Iamsirithaworn, Suthanun Suthachana, \\ Yongjua Laosiritaworn, Derek A.T. Cummings, Justin Lessler, and Nicholas G. Reich}
+
+\begin{document}
+
+\maketitle
+
+<<libraries, include=FALSE>>=
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(dengueThailand)
+# devtools::install_github("krlmlr/here")
+
+opts_knit$set(root.dir = here::here())
+@
+
+<<setup, include=FALSE>>=
+data("thai_prov_data")
+
+source("R/annual-forecasting-utilities.R")
+
+## annual statistics
+latest_annual_counts <- find_recent_file("annual-thai-counts",
+                                         "data/")
+annual_thai_counts <- read.csv(latest_annual_counts) %>%
+    filter(date_sick_year<=2014)
+mean_thai_dhf <- round(mean(annual_thai_counts$count))
+min_thai_dhf <- round(min(annual_thai_counts$count))
+max_thai_dhf <- round(max(annual_thai_counts$count))
+
+## monthly statistics
+latest_monthly <- find_recent_file("monthly-counts", "data/")
+monthly_counts <- read.csv(latest_monthly)[,-1] %>%
+    filter(date_sick_year<2015)
+
+## read in covariate table
+latest_cov_table <- find_recent_file("covariate-table",
+                                     "data/")
+table_dat <- read.csv(latest_cov_table)
+
+## read in the cv_train data to find the number of models used in cross validation
+most_recent_cv <- find_recent_file(name_start = "cv-train",
+                                   path="data/")
+cv_train <- readRDS(most_recent_cv)
+cv_models <- length(unique(cv_train$model_covs))
+
+## read in summary of CV data
+latest_cv_sum <- find_recent_file("cv-summary-table", "data/")
+cv_mae <- read.csv(latest_cv_sum)
+best_cv_num_cov <- cv_mae$num_cov[1]
+final_covs <- cv_mae$model_covs[1]
+
+## read in prediction summary
+latest_pred_summary_table <- find_recent_file("pred-summary-table",
+                                              "data/")
+final_preds_sum <- read.csv(latest_pred_summary_table)[,-1]
+fitted_vs_simple <- final_preds_sum %>%
+    select(year, pid, num_cov, ae_pred) %>%
+    mutate(model=ifelse(num_cov==min(num_cov), "simple", "fitted")) %>%
+    select(-num_cov) %>%
+    spread(model, ae_pred)
+
+simple_closer_than_fitted <- length(which(fitted_vs_simple$simple<
+                                            fitted_vs_simple$fitted))
+simple_fitted_rMAE <- mean(fitted_vs_simple$simple)/mean(fitted_vs_simple$fitted)
+
+overall_mae <- final_preds_sum %>%
+    group_by(num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE))
+
+pid_mae <- final_preds_sum %>%
+    group_by(pid, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              var_obs_rate = var(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE)) %>%
+    ungroup()
+
+annual_mae <- final_preds_sum %>%
+    group_by(year, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE)) %>%
+    ungroup()
+
+province_data <- final_preds_sum %>%
+    left_join(thai_prov_data, by = c("pid" = "FIPS"))
+
+moph_mae <- province_data %>%
+    group_by(MOPH_Admin_Code, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred/mae_baseline,
+              win_pct = mean(win, na.rm = TRUE)) %>%
+    ungroup()
+
+moph_best_regions <- moph_mae %>%
+    mutate(model=ifelse(num_cov==min(num_cov), "simple", "fitted")) %>%
+    select(MOPH_Admin_Code, model, rel_mae) %>%
+    spread(model, rel_mae)
+
+fitted_best_regions <- length(which(moph_best_regions$fitted<
+                                      moph_best_regions$simple &
+                                      moph_best_regions$fitted<1))
+simple_best_regions <- length(which(moph_best_regions$fitted>
+                                      moph_best_regions$simple &
+                                      moph_best_regions$simple<1))
+baseline_best_regions <- length(which(moph_best_regions$fitted>1 &
+                                        moph_best_regions$simple>1))
+
+## Outbreak statistics
+latest_pi_summary <- find_recent_file("prediction-interval-summary",
+                                      "data/")
+pi_dat <- read.csv(latest_pi_summary)[,-1]
+fitted_pi_80 <- mean(pi_dat$pi_coverage_80[which(pi_dat$num_cov==
+                                                   max(pi_dat$num_cov))])
+simple_pi_80 <- mean(pi_dat$pi_coverage_80[which(pi_dat$num_cov==
+                                                   min(pi_dat$num_cov))])
+
+pi_simple <- filter(pi_dat, num_cov==1) %>%
+    left_join(select(thai_prov_data,-Population), by=c("pid"="FIPS"))
+outbreak_roc <- pROC::roc(pi_simple$outbreak_observed,
+                          pi_simple$outbreak_probability,
+                          ci=T)
+
+outbreak_quantiles <- pi_simple %>%
+    mutate(pred_ob_quantile=.01*(outbreak_probability<=0.01),
+           pred_ob_quantile=pred_ob_quantile+.05*(outbreak_probability<=0.05)*
+               (outbreak_probability>0.01),
+           pred_ob_quantile=pred_ob_quantile+.25*(outbreak_probability<=0.25)*
+               (outbreak_probability>0.05),
+           pred_ob_quantile=pred_ob_quantile+.5*(outbreak_probability<=0.5)*
+               (outbreak_probability>0.25),
+           pred_ob_quantile=pred_ob_quantile+1*(outbreak_probability>0.5)) %>%
+    group_by(pred_ob_quantile) %>%
+    summarise(num_provs=n(),
+              num_outbreaks=sum(outbreak_observed)) %>%
+    mutate(ob_pct=num_outbreaks/num_provs)
+
+total_outbreaks <- sum(pi_simple$outbreak_observed)
+@
+
+\section*{Abstract}
+
+Dengue hemorrhagic fever (DHF), a severe manifestation of dengue viral infection causing severe bleeding, organ impairment, and even death, affects 40,000 people on average each year in Thailand.
+Accurately forecasting DHF outbreaks could help prioritize public health activities.
+We develop statistical models that use biologically-plausible covariates, observed by April each year, to forecast the cumulative DHF incidence for the remainder of the year.
+We perform cross-validation during the training phase (2000-2009) to select the covariates for these models.
+A parsimonious model based on pre-season incidence outperforms the 10-year median for \Sexpr{round(100*max(overall_mae$win_pct))}\% of province-level annual forecasts, reduces the mean absolute error by \Sexpr{round(100*(1-min(overall_mae$rel_mae)))}\%, and successfully forecasts outbreaks (AUC=\Sexpr{round(outbreak_roc$auc,2)}) over the testing period (2010-2014).
+We find that functions of past incidence contribute most strongly to model performance whereas the importance of environmental covariates varies regionally.
+This work illustrates that accurate forecasts of dengue risk are possible in a policy-relevant time-frame.
+
+\section*{}
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
+\begin{figure}
+\includegraphics[width=\maxwidth]{figure/incidence-map-1} \caption{\textbf{The temporal and spatial distribution of the annual dengue hemorrhagic fever incidence rate in Thailand.} \textbf{(a)} The dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, for each Thai province and year in this study. \textbf{(b)} The median annual DHF incidence rate, per 100,000 population, for each province from 2000-2014. \textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the annual incidence rate for each province.}\label{fig:incidence-map}
+\end{figure}
+\end{knitrout}
+
+Dengue, a mosquito-borne virus prevalent throughout the tropics and sub-tropics, infects an estimated 390 million people every year \cite{Bhatt2013}.
+While the majority of infections are mild or asymptomatic, the more severe forms of dengue infection -- dengue shock syndrome (DSS) and dengue hemorrhagic fever (DHF) -- can result in organ failure or death \cite{Gubler1998}.
+The number of symptomatic dengue infections has doubled every ten years since 1990, in contrast to the declining incidence of most other communicable diseases \cite{Stanaway2016}.
+
+In Thailand, dengue infection is endemic with substantial annual and geographic variation in incidence across its 76 provinces and 13 health regions (Figure \ref{fig:incidence-map}).
+Over the past 15 years, an average of \Sexpr{prettyNum(mean_thai_dhf, big.mark=",")} (range \Sexpr{prettyNum(min_thai_dhf, big.mark=",")}-\Sexpr{prettyNum(max_thai_dhf, big.mark=",")}) DHF cases have been reported to the Thailand Ministry of Public Health (MOPH) each year.
+Within a typical year, incidence rates in different provinces can vary by an order of magnitude, with some provinces experiencing less than 10 DHF cases per 100,000 population and others over 100 per 100,000 population.
+
+Public health officials must determine where to allocate resources to manage the problems caused by dengue viral infection.
+A newly-approved vaccine may be able to reduce the number of dengue infections, if properly regimented \cite{Ferguson2016}.
+For those already infected, effective case management can reduce the case-fatality rate of severe dengue \cite{Kalayanarooj1999}.
+With sufficient advance notice, public health officials could implement prevention programs and conduct interventions in regions that have the highest epidemic risk.
+Effective long-term forecasts would provide more timely information to aid in prioritizing these public health activities.
+
+Prior dengue forecasting efforts by members of our group and others have focused on short time scales (weeks or months) \cite{Wu2007, Lowe2011, Hii2012, Reich2016a, Johansson2016}.
+These studies demonstrated the importance of recent case counts and seasonality on the immediate trajectory of dengue incidence.
+In 2015, the National Oceanic and Atmospheric Administration (NOAA) and the Centers for Disease Control (CDC) hosted a competition to make within-season forecasts for annual dengue incidence, epidemic peak, and peak height for San Juan, Puerto Rico and Iquitos, Peru \cite{NOAA2015}.
+Groups that employed methods relying solely on functions of incidence performed well relative to baseline forecasts \cite{Yamana2016, Ray2017} and were amongst the top performers in the competition \cite{Johnson2017}.
+
+Whether an infectious disease spreads within a population depends on the transmission rate of the disease and the number of susceptible individuals \cite{Keeling2007, Kermack1927}, thus long-term forecasting models for DHF incidence may need to account for climatic factors that could affect transmission as well as population susceptibility.
+Climatic factors, such as temperature, rainfall, and humidity, may impact both the prevalence and distribution of the dengue vector, the \textit{Aedes} mosquito \cite{Juliano2002, Scott2000, Brady2013}, as well as the transmission efficiency of dengue virus \cite{Bhatt2013, Johansson2009a}.
+Such climatic factors vary significantly across Thailand \cite{Campbell2013}.
+Even in ideal conditions for disease transmission, there needs to be a sufficiently large susceptible population for a disease to spread.
+Dengue has complex immunological dynamics that make tracking the number of susceptible individuals within a population difficult.
+The vast majority of first dengue infections are asymptomatic, while second infections are more likely to result in severe outcomes such as DHF and DSS \cite{Burke1988, Endy2002}.
+Infection by any of its four serotypes may offer temporary immunity to the other serotypes and lifelong immunity to the contracted serotype \cite{Gubler1998, Adams2006, Wearing2006, Reich2013}, although there is some evidence that repeat infections of the same serotype may occur \cite{Forshey2016, Waggoner2016}.
+
+A useful forecasting model needs to make better predictions than a baseline model on out-of-sample observations \cite{Reich2016}.
+For decades, researchers have split their data into `training' and `testing' samples to separate the fitting and evaluation processes \cite{Stone1974, Hastie2009}.
+Cross validation is a popular technique for estimating the expected prediction error, thus minimizing the cross-validation error on the training sample might be expected to improve predictions over the testing sample.
+However, this can lead forecasters to select models that ``overfit'' on the training sample and therefore do not perform well on the testing sample \cite{Ng1997}.
+Hence, it is prudent for researchers to also select a parsimonious model with more cross-validation error that might perform better on out-of-sample data \cite{Hastie2009, Ng1997}.
+In the testing phase, using a sensible baseline model as a comparison allows researchers to measure how much a forecasting model improves over a benchmark in an interpretable manner \cite{Hyndman2006}.
+
+Using demographic, weather, and dengue data from 2000 to 2009, we selected two models using a cross-validated variable selection procedure to make probabilistic forecasts of the annual DHF incidence for 2010 to 2014.
+We chose to predict DHF cases because reporting for this severe form of dengue is thought to be more consistent across time and space, while still being a primary indicator of the burden of disease \cite{Reich2016a}.
+We compare the forecasts from these models to baseline forecasts derived from a province's median DHF incidence rate over the past ten years.
+We use the probabilistic distributions to estimate the outbreak risk for each province.
+We investigate features of our forecasting models, including regional variations in performance and the most informative covariates.
+In doing so, we show that producing accurate forecasts that add value for public health decision makers is a viable endeavor.
+
+\section*{Results}
+
+\subsection*{Models selected for forecasting}
+
+We obtained data on DHF cases (from the MOPH), population (National Statistical Office of Thailand), and weather (NOAA) \cite{Reich2016a, NOAA2012, Menne2012, NCDC2015, Fan2008, Adler2003}.
+These data were summarized across time frames ranging from one month to one year to create \Sexpr{nrow(table_dat)-1} covariates for consideration by our model selection algorithm (Tables 1 and S\ref{S-sup:covs}).
+We calculated an additional covariate, `estimated relative susceptibility', based on the assumption that an infected person will be protected against all dengue serotypes for a period of roughly two years \cite{Reich2013}.
+We made forecasts using the data available in April of each year, the month when the MOPH has historically finalized the incidence reports obtained from all provinces for the prior calendar year.
+Hence, all ``annual'' forecasts are for DHF incidence between April and December of the year they are made.
+Across the 15 years used in this study, \Sexpr{round(100*sum(monthly_counts$count[monthly_counts$date_sick_month>3])/sum(monthly_counts$count))}\% of the DHF cases occurred between April and December of each year.
+
+We used leave-one-year-out cross validation to predict the DHF incidence across the 760 province-years in the training phase (76 provinces for each year from 2000-2009).
+Of the \Sexpr{cv_models} candidate models considered, the model with the smallest leave-one-year-out-cross-validated mean absolute error (CV MAE) included five covariates: pre-season (January-March) incidence rate, total January rainfall, mean January temperature, mean low-season (November-March) temperature, and population size (Figure \ref{fig:final-covs}).
+In order to avoid overfitting on the training phase, we also chose the model with the fewest covariates within one standard deviation of the minimum CV MAE \cite{Hastie2009}.
+Using this procedure, we selected a model that included only pre-season incidence.
+We refer to these models as the `weather, incidence, and population (WIP) model' and `incidence-only model', respectively.
+%
+% \begin{table}[h]
+%     \centering
+%     \begin{tabular}{ l p{5in} }
+%         \hline
+%         Covariate Type & Reason for inclusion \\
+%         \hline \hline
+%         Incidence & Large dengue outbreaks may temporarily deplete the susceptible population \cite{Reich2013, Wearing2006, Adams2006}. Larger dengue seasons often start earlier \cite{Campbell2013}. \\ \hline
+%         Demographics & Higher population density may facilitate dengue transmission \cite{Teixeira2002}. \\ \hline
+%         Humidity & Humidity may improve the survival rate of \textit{Aedes} mosquito eggs \cite{Juliano2002, Campbell2013}. \\ \hline
+%         Rainfall & Rainfall is essential for \textit{Aedes} mosquito breeding and may have a positive effect on dengue transmission \cite{Bhatt2013, Scott2000}. \\ \hline
+%         Temperature & Temperatures must be warm enough for \textit{Aedes} mosquitoes to imbibe blood \cite{Brady2013}, but cool enough for optimal survival of eggs \cite{Juliano2002}. \\ \hline
+%         \end{tabular}
+%     \caption{Justifications for types of covariates considered for inclusion prior to model selection}
+%     \label{tab:reason}
+% \end{table}
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
+\begin{figure}
+{\centering \includegraphics[width=0.8\linewidth]{figure/final-covs-1}
+
+}
+\caption{\textbf{The covariate fit curves for the weather, incidence, and population (WIP) model.} The solid lines represent the average association between each covariate in the WIP model and annual dengue hemorrhagic fever (DHF) incidence per 100,000 population, fixing all other covariates at their mean. The dashed lines are the confidence intervals of each association, two standard errors above and below the mean as derived from the covariance matrix of the model fit. The covariates are arranged by performance in the Wald test from largest reduction in deviance \textbf{(a)} to smallest reduction in deviance \textbf{(e)}.}
+\label{fig:final-covs}
+\end{figure}
+\end{knitrout}
+
+\subsection*{Forecasting performance in the testing phase}
+
+Across the 380 province-years in the testing phase (2010-2014), forecasts from the incidence-only model were more accurate than forecasts from the WIP model (relative mean absolute error [rMAE]=\Sexpr{round(100*simple_fitted_rMAE)}\% \cite{Hyndman2006}) and baseline forecasts derived from the 10-year median incidence rate (rMAE=\Sexpr{round(min(100*overall_mae$rel_mae))}\%).
+The incidence-only model forecasts were closer to the observed DHF incidence than those of the WIP model in \Sexpr{simple_closer_than_fitted} of 380 (\Sexpr{round(100*simple_closer_than_fitted/380)}\%) province-years and better than baseline forecasts in \Sexpr{overall_mae$win_pct[1]*overall_mae$N[1]} of 380 (\Sexpr{round(100*overall_mae$win_pct[1])}\%) province-years (Table S\ref{S-sup:overall}).
+In each year, the incidence-only model outperformed both the WIP model and the baseline forecasts in aggregate (i.e., the all-province MAE was lower and more forecasts were closer to the observed incidences) (Figure \ref{fig:pred-interval-plot} and Table S\ref{S-sup:annual}).
+Across all testing phase province-years, the 80\% prediction interval from the incidence-only model covered \Sexpr{round(100*simple_pi_80)}\% of the observed DHF incidences, compared to \Sexpr{round(100*fitted_pi_80)}\% covered by the WIP 80\% prediction interval.
+
+The testing-phase performance of each model varied across Thailand's 13 MOPH health regions (Figure S\ref{S-sup:moph-region-map}).
+The incidence-only model performed best in \Sexpr{simple_best_regions} of 13 (\Sexpr{round(100*simple_best_regions/13)}\%) regions, the WIP model performed best in \Sexpr{fitted_best_regions} of 13 (\Sexpr{round(100*fitted_best_regions/13)}\%) regions, and the baseline forecasts performed best in \Sexpr{baseline_best_regions} of 13 (\Sexpr{round(100*baseline_best_regions/13)}\%) regions (Figure \ref{fig:rel-mae-maps} and Table S\ref{S-sup:moph}).
+The WIP model made better forecasts, relative to the baseline forecasts, for regions that experience colder (MOPH regions 1, 7, and 8) or rainier (MOPH regions 11 and 12) low-seasons than for the rest of Thailand.
+In these regions climatic suitability for mosquito breeding varies between years, hence a model with climate covariates can provide a strong early indication of annual incidence.
+Conversely, the WIP model performed especially poorly in Bangkok, which has consistently warm weather and moderate rainfall from year to year.
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
+\begin{figure}
+\includegraphics[width=\maxwidth]{figure/pred-interval-plot-1}
+\caption{\textbf{The incidence-only model forecasts for each year of the testing phase compared to those of the baseline forecasts and the observed values.} Forecasts for dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, from the incidence-only model (blue triangles with gray 80\% prediction intervals), baseline forecasts (red circles), and observed values (black x's) for each province and year in the testing phase.}
+\label{fig:pred-interval-plot}
+\end{figure}
+\end{knitrout}
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
+\begin{figure}
+\includegraphics[width=\maxwidth]{figure/rel-mae-maps-1}
+\caption{\textbf{Model performance by geographic region.} \textbf{(a)} The best fitted model in the testing phase for each Thailand Ministry of Public Health (MOPH) region, which shows spatial patterns of performance. \textbf{(b)} The relative mean absolute error (rMAE) of the forecasts for each MOPH region from the models in (a) over the baseline forecasts derived from the ten-year median DHF incidence rate. Areas with: less MAE than the baseline are blue, more MAE than the baseline are red, and MAE equal to the baseline are white.}\label{fig:rel-mae-maps}
+\end{figure}
+\end{knitrout}
+
+We quantified the risk of an outbreak for each province-year using samples from the predictive distributions of the incidence-only model.
+We define an `outbreak' to be when a province experiences a DHF incidence rate that is greater than two standard deviations above its 10-year median rate.
+In the testing phase, there were outbreaks in \Sexpr{total_outbreaks} of \Sexpr{nrow(pi_simple)} (\Sexpr{round(100*total_outbreaks/nrow(pi_simple))}\%) province-years.
+Across all testing phase province-years, the forecasted outbreak probability had a strong correspondence with the likelihood of a province experiencing an outbreak (Figure \ref{fig:outbreak-plot}b).
+Correspondence was particularly good in the \Sexpr{sum(outbreak_quantiles$num_provs[which(outbreak_quantiles$pred_ob_quantile<=0.5)])} province-years where forecasted outbreak probabilities were less than 50\% (Figure \ref{fig:outbreak-plot}a).
+Due to the unlikely nature of outbreaks, the incidence-only model only forecasted outbreak probabilities above 50\% for \Sexpr{sum(outbreak_quantiles$num_provs[which(outbreak_quantiles$pred_ob_quantile>0.5)])} province-years (\Sexpr{round(100*sum(outbreak_quantiles$num_provs[which(outbreak_quantiles$pred_ob_quantile>0.5)])/380)}\% of all forecasts), however \Sexpr{sum(outbreak_quantiles$num_outbreaks[which(outbreak_quantiles$pred_ob_quantile>0.5)])} of the \Sexpr{total_outbreaks} (\Sexpr{round(100*sum(outbreak_quantiles$num_outbreaks[which(outbreak_quantiles$pred_ob_quantile>0.5)])/total_outbreaks)}\%) outbreaks occurred during these province-years.
+The incidence-only model correctly ordered the outbreak probabilities of any two randomly chosen province-years \Sexpr{round(100*outbreak_roc$auc)}\% of the time (Figure \ref{fig:outbreak-plot}c) \cite{Hanley1982}.
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
+\begin{figure}
+\includegraphics[width=\maxwidth]{figure/outbreak-plot-1}
+\caption{\textbf{The accuracy of outbreak forecasts by the incidence-only model.} \textbf{(a)} The percentage of provinces with an outbreak each year by predicted outbreak probability quantile range from the incidence-only model. An outbreak is defined as DHF incidence greater than two standard deviations above the median DHF incidence for the past ten years. The triangles indicate the percentage of provinces in each quantile range with an observed outbreak across all years and the diamonds indicate the mean predicted outbreak probability for each quantile range across all years. \textbf{(b)} The incidence-only model's probability of outbreak for each province-year in the prospective phase and whether or not an outbreak was observed. The blue loess smoothed line shows the probability of observing an outbreak for a given predicted outbreak probability. \textbf{(c)} The receiver operating characteristic (ROC) curve based on the incidence-only model's sensitivity and specificity on outbreak predictions. The area under the ROC curve (AUC) is indicated below the line of no-discrimination (dashed).}\label{fig:outbreak-plot}
+\end{figure}
+\end{knitrout}
+
+\section*{Discussion}
+
+We have shown that it is possible to make accurate forecasts of annual dengue hemorrhagic fever (DHF) incidence for Thailand at the province level using data available to policy makers prior to each year's dengue season.
+Prospective forecasts from a parsimonious model performed better than forecasts based on 10-year median incidence rates.
+Further, this model successfully ordered provinces by their risk of experiencing an outbreak.
+These forecasts can provide timely and valuable information to policy makers as they prepare for the coming dengue season.
+By integrating biological and statistical approaches, these models push the envelope on how early it may be possible to accurately forecast annual dengue incidence.
+However, further improvements are needed for these forecasts to have their maximum impact.
+
+The inclusion of climatic covariates did not consistently add value to forecasts relative to the incidence-only model.
+While there is biological evidence that \textit{Aedes} mosquitoes are affected by climatic factors \cite{Juliano2002, Bhatt2013, Brady2013}, the usage of such factors in dengue forecasting efforts have shown mixed results \cite{Wu2007, Lowe2011, Hii2012, Johansson2016, Johansson2009a}.
+These findings suggest that the associations between climate covariates and dengue either differ across time and space or are spurious correlations.
+Alternatively, climate may be one of several necessary-but-insufficient factors, along with susceptibility and recent incidence, whose combination results in ideal conditions for dengue transmission.
+Building a forecasting model that incorporates interactions between covariates is an area for future work.
+
+The relative estimated susceptibility covariate was not selected for inclusion in either of the final models.
+This crude approximation of a complex mechanistic feature of disease was a component of the best six-covariate model, however that model had a larger cross-validated mean absolute error during the training phase than the weather, incidence, and population model.
+A susceptibility term built on our mechanistic understanding of the disease process that more accurately captures the transient cross-protection between dengue serotypes could add value to a forecasting model.
+
+Although we have demonstrated our ability to successfully forecast DHF incidence prior to the dengue season, many of the planning activities of the Thailand Ministry of Public Health (MOPH) occur even further in advance, thus the ability to make forecasts earlier in the year may be useful for public health policy.
+Historically, the MOPH has finalized each year's dengue reports in the following April.
+This effectively sets the earliest possible date annual forecasts can be made if they are to be based on complete data.
+An accurate model of reporting delays or more timely reporting could shift this date earlier.
+Likewise, forecasters could build a series of models optimized for data available at different times of the year.
+
+To aid in the translation of this research into practice we created sortable spreadsheet reports with results for each year that were then disseminated within the MOPH (Tables S5-S9).
+These reports are used for ranking provinces based on the forecasted probability of an outbreak and prioritizing locations for targeted interventions.
+This operational interpretation of the results emphasizes the importance of the relative rankings being accurate.
+The finding that \Sexpr{round(100*outbreak_roc$auc)}\% of the time our model would correctly rank two randomly-selected province-years by outbreak probability directly supports the use of these forecasts in practice.
+
+Making timely forecasts of infectious disease incidence is a challenging but important task.
+Accurate forecasts could play an important role in implementing targeted interventions designed to reduce transmission.
+Additionally, they could play a critical role in a systematic study of how well different interventions prevent or reduce the size of disease outbreaks.
+Collaborative efforts between public health agencies and academic- or industry-based teams with predictive modeling expertise are critical to helping propel this field forward.
+With the rapid growth and maturation of disease surveillance systems worldwide, developing our understanding of the best methods for creating and evaluating forecasts of infectious disease should continue to be a global health priority.
+
+\section*{Methods}
+
+\subsection*{Weather covariate screening}
+
+To investigate the utility of weather for forecasting annual DHF incidence, we included a variety of temperature, humidity, and rainfall covariates across several seasonal periods (Table S\ref{S-sup:covs}).
+We downloaded weather station data from the National Oceanic and Atmospheric Administration (NOAA), which provided daily rain and temperature estimates for weather stations in 35 provinces \cite{NOAA2012, Menne2012}.
+Using the {\tt stationaRy} \cite{stationaRy} package in R \cite{R2017}, we obtained integrated surface data from the National Climatic Data Center (NCDC) \cite{NCDC2015}.
+These data consist of temperature and humidity measurements from weather stations in 65 provinces (including all 35 provinces from the NOAA dataset), at six-hour intervals.
+For all provinces, we downloaded monthly temperature and rainfall data on 0.5x0.5 latitude-longitude resolution from the Earth System Research Laboratory (ESRL) at NOAA \cite{Fan2008, Adler2003}.
+
+For the NOAA and NCDC weather station data, we found the most consistently reported weather station for each province and extracted the daily maximum and minimum temperature, maximum humidity, and rainfall.
+We aggregated these measures into monthly covariates for maximum, minimum, and mean temperature, maximum and mean humidity, and maximum and total rainfall across the low-season, January, February, and March.
+
+We removed any covariates for which more than half of the aggregated observations from one source were missing.
+For example with NOAA data, if 263 province-years (half of 35 provinces for 15 years) of observations were missing for a covariate, it was removed; as was the case for low-season minimum and maximum temperature.
+The ESRL data, from which the three covariates in the WIP model were derived, had one observation per month and was completely reported across all provinces.
+
+\subsection*{Relative estimated susceptibility}
+
+The estimated relative susceptibility covariate is a standardized rolling sum of cases from the previous two years.
+This is based on the approximate duration of time after infection with one dengue serotype that an individual may experience cross-protection to a subsequent heterologous infection \cite{Reich2013}.
+We calculate this quantity with the following equations:
+\begin{align*}
+    s_{i,t} &= s_{i,t-1} - \frac{y_{i,t-1}}{n_{i,t-1}} + \frac{y_{i,t-3}}{n_{i,t-3}} \\
+    s_{i,0} &= \frac{1}{10}\sum_{t=2000}^{2009}\frac{y_{i,t}}{n_{i,t}},
+\end{align*}
+where $s_{i,t}$ is the estimated relative susceptibility, $y_{i,t}$ is the observed incidence, and $n_{i,t}$ is the population in province $i$ in year $t$.
+Each year, the susceptibility for the prior year ($s_{i,t-1}$) is updated by removing the people who were infected in the past year ($\frac{y_{i,t-1}}{n_{i,t-1}}$), as we assume that they are immune to one serotype of dengue and cross-protected against the other serotypes.
+Furthermore, the cross-protection for people who were infected three years prior ($\frac{y_{i,t-3}}{n_{i,t-3}}$) will have worn off and they are reintroduced to the pool of susceptibles.
+We assume that each province starts with an estimated relative susceptibility equal to the average incidence rate over the training phase ($s_{i,0}$).
+This accounts for the fact that provinces with larger susceptible populations are more likely to have greater incidence than provinces with smaller susceptible populations \cite{Keeling2007}.
+When there is no data for the year three years prior, $s_{i,0}$ is used in place of $\frac{y_{i,t-3}}{n_{i,t-3}}$.
+Using rates instead of raw counts yields a covariate that can be compared across provinces with different population sizes.
+Though there are more cases of non-hemorrhagic dengue fever and asymptomatic cases than observed DHF cases, DHF cases may serve as a proxy for the underlying disease dynamics \cite{Bhatt2013}.
+
+\subsection*{Model structure and estimation}
+
+The model that we used to forecast annual DHF incidence for this study is a generalized additive model \cite{Hastie2009}.
+Specifically, we use a generalized additive model with a negative binomial family, separate penalized smoothing splines for each covariate, and province-level random effects:
+
+\begin{align}
+    Y_{i,t} &\sim \text{NB}(n_{i,t}\lambda_{i,t}, r), \label{eqn:NB} \\
+    % \log \Big [ \mathbf{E}(Y_{i,t}) \Big ] = \log \Big [ \mathbf{E}(n_{i,t}\lambda_{i,t}) \Big ] &= \log(n_{i,t}) + \alpha_i + \sum_{j=1}^J g_j(x_{j,i,t}|\boldsymbol{\theta}), \label{eqn:regression} \\
+    \log \Big [ \mathbf{E}(Y_{i,t}) \Big ] &= \beta_0 + \log(n_{i,t}) + \alpha_i + \sum_{j=1}^J g_j(x_{j,i,t}|\boldsymbol{\theta}), \label{eqn:regression} \\
+    \alpha_i &\sim \text{Normal}(\mu, \sigma^2). \label{eqn:RE}
+\end{align}
+
+\noindent We model the incidence ($Y_{i,t}$) for province $i$ in year $t$ as following a negative binomial distribution with the mean equal to the province population ($n_{i,t}$) times the incidence rate ($\lambda_{i,t}$) and a dispersion parameter $r$.
+After a log transformation, we model the mean of this distribution using an intercept ($\beta_0$), a random effect for each province ($\alpha_i$) and a cubic spline for each of $J$ covariates ($g_j(x_{j,i,t}|\boldsymbol{\theta})$).
+
+To obtain predictive distribution samples, we use a two-stage procedure to incorporate the uncertainty from our model parameter estimates and from the negative binomial distribution.
+We first draw 100 sample parameter sets from a multivariate normal distribution with mean equal to the point estimates of the parameters ($\boldsymbol{\theta}, \mu, \sigma^2$) from Equations (\ref{eqn:regression})-(\ref{eqn:RE}) and covariance equal to the matrix of standard errors.
+Each of these sampled parameter sets yields a corresponding $\widehat{\lambda}_{i,t}$.
+We then draw 100 samples from the negative binomial distribution given in Equation (\ref{eqn:NB}) for each $\widehat{\lambda}_{i,t}$ with the fixed estimate of $r$ to obtain a sample of size 10,000 from the predictive distribution for $Y_{i,t}$.
+We calculate the point estimate for each province-year, $\widehat Y_{i,t}$, as the median of these samples from the predictive distribution.
+The lower and upper limits of the 80\% prediction intervals were defined by taking the 10$^{th}$ and 90$^{th}$ percentiles of these samples from the predictive distribution.
+
+\subsection*{Model selection algorithm}
+
+To choose the covariates to include in the forecasting models, we used a forward-backward stepwise algorithm to minimize the leave-one-year-out-cross-validated mean absolute error (CV MAE) during the training phase \cite{Draper1998}.
+Starting with a null model, we iteratively added or removed the covariate that reduced the CV MAE the most at each step.
+The model with the smallest CV MAE at the end of the iterative process was the WIP model.
+To guard against the possibility of overfitting, we also selected the nested model with the fewest covariates within one standard deviation of the WIP model CV MAE \cite{Hastie2009}, which was the incidence-only model.
+
+In order to choose the number of knots for each covariate spline, we cross-validated every single-covariate model varying the number of knots from 3 to 8, which we conducted prior to the forward-backward stepwise algorithm above.
+We chose the model with the fewest knots within one standard deviation of the smallest CV MAE for each covariate.
+We fixed this number of knots for each covariate spline for all multivariate models.
+
+\subsection*{Mean absolute error}
+
+We used mean absolute error (MAE) as our metric to select models during the training phase and relative mean absolute error (rMAE) to evaluate the models during the testing phase.
+Forecasts were made on the log scale, thus our MAE took the form:
+\begin{equation*}
+\text{MAE} = \frac{1}{P_k}\sum_{i, t \in k} \left \vert \log(\widehat{Y}_{i,t})-\log(Y_{i,t})\right \vert = \frac{1}{P_k} \sum_{i, t \in k} \left \vert \log \left( \frac{\widehat{Y}_{i,t}}{Y_{i,t}} \right) \right \vert
+\end{equation*}
+\noindent where $P_k$ is the total number of province-years in block $k$, which could be the entire training or testing phase, or subset to one year, province, or region.
+This form of the MAE has the interpretation that precision is relative to magnitude; e.g. predicting an incidence of 12 when an incidence of 7 is observed would have the same absolute error as predicting an incidence of 120 when an incidence of 70 is observed ($\log(\frac{12}{7})=\log(\frac{120}{70})=0.539$).
+
+The testing phase point predictions were compared to baseline forecasts using rMAE, an intuitive, scalable, and stable metric for evaluating forecasts \cite{Reich2016}:
+\begin{equation*}
+\text{rMAE} = \frac{\text{MAE}_\text{model}}{\text{MAE}_\text{baseline}}.
+\end{equation*}
+This metric can be interpreted as the percentage of error observed in the forecasting model relative to that in the baseline forecasts; e.g. if $\text{MAE}_\text{model}=0.6$ and $\text{MAE}_\text{baseline}=0.8$, then the forecasting model's predictions were 25\% closer to the observed value than the baseline forecasts.
+
+\subsection*{Data and code availability}
+
+All data processing and analysis was performed in R version 3.3.1 (2017-03-16) \cite{R2017}.
+The code and data for this analysis is publicly available at \url{https://doi.org/10.5281/zenodo.546123}.
+
+\bibliography{Lauer-annual-DHF-citations}{}
+\bibliographystyle{unsrt}
+
+\section*{Acknowledgements}
+
+This project was funded by NIH NIAID grant 1R01AI102939 and NIGMS grant R35GM119582.
+The findings and conclusions in this manuscript are those of the authors and do not necessarily represent the views of the National Institutes of Health or the National Institute of General Medical Sciences.
+The funders had no role in study design, data collection and analysis, decision to present, or preparation of the presentation.
+
+\section*{Author information}
+
+\subsection*{Affiliations}
+
+\noindent \textbf{Department of Biostatistics and Epidemiology, School of Public Health and Health Sciences, University of Massachusetts--Amherst, Amherst, Massachusetts, United States of America}
+
+\noindent Stephen A. Lauer, Krzysztof Sakrejda, Evan L. Ray, and Nicholas G. Reich
+
+\noindent \textbf{Department of Epidemiology, Johns Hopkins Bloomberg School of Public Health, Baltimore, Maryland, United States of America}
+
+\noindent Lindsay T. Keegan, Qifang Bi, and Justin Lessler
+
+\noindent \textbf{Bureau of Epidemiology, Department of Disease Control, Ministry of Public Health, Bangkok, Thailand}
+
+\noindent Paphanij Suangtho, Soawapak Hinjoy, Suthanun Suthachana, and Yongjua Laosiritaworn
+
+\noindent \textbf{Department of Disease Control, Ministry of Public Health, Nonthaburi, Thailand}
+
+\noindent Sopon Iamsirithaworn
+
+\noindent \textbf{Emerging Pathogens Institute, Department of Biology, University of Florida, Gainesville, Florida, United States of America}
+
+\noindent Derek A.T. Cummings
+
+\subsection*{Contributions}
+
+Conceived and designed the experiments: SAL, KS, ELR, SI, DATC, JL, NGR.
+Performed the experiments: SAL.
+Analyzed the data: SAL, NGR.
+Contributed reagents/materials/analysis tools: PS, SH, SI, SS, YL.
+Wrote the paper: SAL, KS, ELR, LTK, QB, PS, SI, YL, DATC, JL, NGR.
+Prepared and managed the data: SAL, KS, PS, SS.
+
+\subsection*{Competing financial interests}
+
+None.
+
+\subsection*{Corresponding author}
+
+Correspondence to Stephen A. Lauer (slauer@schoolph.umass.edu).
+
+\end{document}

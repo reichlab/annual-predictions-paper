@@ -13,12 +13,12 @@ thai_prov_data[thai_prov_data$ISO==43,"Area_km"] <-
 data("thai_census_interpolated")
 
 FIRST_YEAR <- 2000
-LAST_YEAR <- 2015
+LAST_YEAR <- 2014
 FIRST_TEST_YEAR <- 2010
 LAST_LOW_MONTH <- 3
 FIRST_LOW_MONTH <- 11
 
-setwd(here:here())
+setwd(here::here())
 source("R/annual-forecasting-utilities.R")
 
 ## read in the monthly counts

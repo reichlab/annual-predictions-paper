@@ -18,6 +18,16 @@ Source: CRAN
 Version: 7.3-45
 Hash: 0650d5701aa7e369e77c9e2c8e1dc913
 
+Package: MapColoring
+Source: github
+Version: 1.0
+Hash: b3a9ba5c82c36cba66070ee3fbd37849
+Requires: sp, rgeos
+GithubRepo: MapColoring
+GithubUsername: hunzikp
+GithubRef: master
+GithubSha1: 2e6d50e817e000f626f29376561a07b406855e55
+
 Package: Matrix
 Source: CRAN
 Version: 1.2-8

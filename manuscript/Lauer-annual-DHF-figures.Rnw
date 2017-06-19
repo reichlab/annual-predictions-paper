@@ -1,0 +1,764 @@
+\documentclass{article}
+
+\begin{document}
+
+<<libraries, include=FALSE>>=
+library(dplyr)
+library(ggplot2)
+library(maptools)
+library(xtable)
+library(mgcv)
+library(mapproj)
+library(dengueThailand)
+library(scales)
+library(grid)
+# devtools::install_github("krlmlr/here")
+set.seed(1)
+
+opts_knit$set(root.dir = here::here())
+@
+
+<<setup, include=FALSE>>=
+data("thai_prov_data")
+
+source("R/annual-forecasting-utilities.R")
+
+## color blind color palette
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+                "#0072B2", "#D55E00", "#CC79A7")
+
+FIRST_YEAR <- 2000
+LAST_YEAR <- 2014
+FIRST_TEST_YEAR <- 2010
+INCIDENCE <- TRUE
+SAVE_FILES <- TRUE
+
+## code for making custom plots from gam fits
+EvaluateSmooths = function(model, select=NULL, x=NULL, n=100) {
+    if (is.null(select)) {
+        select = 1:length(model$smooth)
+    }
+    do.call(rbind, lapply(select, function(i) {
+        smooth = model$smooth[[i]]
+        data = model$model
+
+        if (is.null(x)) {
+            min = min(data[smooth$term])
+            max = max(data[smooth$term])
+            x = seq(min, max, length=n)
+        }
+        if (smooth$by == "NA") {
+            by.level = "NA"
+        } else {
+            by.level = smooth$by.level
+        }
+        range = data.frame(x=x, by=by.level)
+        names(range) = c(smooth$term, smooth$by)
+
+        mat = PredictMat(smooth, range)
+        par = smooth$first.para:smooth$last.para
+
+        y = mat %*% model$coefficients[par]
+
+        se = sqrt(rowSums(
+            (mat %*% model$Vp[par, par, drop = FALSE]) * mat
+        ))
+
+        return(data.frame(label=smooth$label,
+                          x.var=smooth$term,
+                          x.val=x,
+                          by.var=smooth$by,
+                          by.val=by.level,
+                          value = y,
+                          se = se)
+        )
+    }))
+}
+
+##### All of data required to make these visuals
+#####
+
+## read in latest data for prediction
+most_recent_dat <- find_recent_file(name_start = "annual-pred-data",
+                                    path="data/")
+
+dengue_dat <- read.csv(most_recent_dat)[,-1] %>%
+    filter(year>=FIRST_YEAR,
+           year<=LAST_YEAR)
+
+## data used for cross validation
+cv_dat <- filter(dengue_dat, year<FIRST_TEST_YEAR)
+
+## map data
+world <- readShapeSpatial("data/map-data/ne_10m_admin_1_states_provinces.shp")
+thai_map <- world[world$adm0_a3=="THA",]
+thai_map <- thai_map[!is.na(thai_map$woe_name),]
+
+## if we have run simulations in the past, find and load them
+most_recent_cv <- find_recent_file(name_start = "cv-train",
+                                   path="data/")
+cv_train <- readRDS(most_recent_cv)
+
+### create a table of all the best single covariate full country models
+
+## label each variable if they are available to group 1, 2, or 3
+var_set <- data_frame(var = names(dengue_dat),
+                      set = c(rep(1, 17), rep(2, 10), rep(3, 11)))
+
+table_dat <- cv_train %>%
+    filter(num_cov==1) %>%
+    group_by(model_covs, year, knots) %>%
+    summarise(year_mae = mean(abs(log(obs_counts)-log(pred_counts)))) %>%
+    group_by(model_covs, knots) %>%
+    summarise(cv_mae = mean(year_mae),
+              cv_se = sd(year_mae)) %>%
+    group_by(model_covs) %>%
+    filter(knots <= knots[which.min(cv_mae)],
+           cv_mae <= cv_mae[which.min(cv_mae)]+cv_se[which.min(cv_mae)]) %>%
+    filter(knots == min(knots)) %>%
+    left_join(var_set, by = c("model_covs" = "var")) %>%
+    arrange(model_covs) %>%
+    rename(best_k=knots)
+
+## fill in full variable names
+table_dat$prop_name <- c("mean February humidity",
+                         "total February rainfall (ESRL)",
+                         "maximum February rainfall (NOAA)",
+                         "total February rainfall (NOAA)",
+                         "mean February temperature (ESRL)",
+                         "mean February temperature (NCDC)",
+                         "mean February temperature (NOAA)",
+                         "mean January humidity",
+                         "total January rainfall (ESRL)",
+                         "maximum January rainfall (NOAA)",
+                         "total January rainfall (NOAA)",
+                         "mean January temperature (ESRL)",
+                         "mean January temperature (NCDC)",
+                         "mean January temperature (NOAA)",
+                         "last high-season incidence rate",
+                         "last post-season incidence rate",
+                         "mean March humidity",
+                         "total March rainfall (ESRL)",
+                         "maximum March rainfall (NOAA)",
+                         "total March rainfall (NOAA)",
+                         "mean March temperature (ESRL)",
+                         "mean March temperature (NCDC)",
+                         "mean March temperature (NOAA)",
+                         "maximum low-season humidity",
+                         "maximum low-season rainfall (NOAA)",
+                         "maximum low-season temperature (NCDC)",
+                         "mean low-season temperature (ESRL)",
+                         "minimum low-season humidity",
+                         "minimum low-season temperature (NCDC)",
+                         "provincial population",
+                         "population per square kilometer",
+                         "pre-season incidence rate",
+                         "estimated relative susceptibility rate",
+                         "total low-season rainfall (ESRL)",
+                         "total low-season rainfall (NOAA)")
+
+if(SAVE_FILES)
+    write.csv(table_dat, paste0("data/covariate-table-",
+                                Sys.Date(),".csv"))
+
+## find best models given CV data
+cv_mae <- cv_train %>%
+    filter(num_cov!=1|
+               num_cov==1 &
+               knots == table_dat$best_k[match(model_covs,
+                                               table_dat$model_covs)]) %>%
+    group_by(year, formula, model_covs, num_cov) %>%
+    summarise(year_mae = mean(abs(log(obs_counts)-log(pred_counts)))) %>%
+    group_by(formula, model_covs, num_cov) %>%
+    summarise(mae = mean(year_mae),
+              cv_sd = sd(year_mae)) %>%
+    group_by(num_cov) %>%
+    filter(mae == min(mae)) %>%
+    ungroup() %>%
+    arrange(mae, num_cov)
+
+if(SAVE_FILES)
+    write.csv(cv_mae, paste0("data/cv-summary-table-",
+                             Sys.Date(),".csv"))
+
+best_cv_formula <- as.character(cv_mae$formula[1])
+
+best_models <- cv_mae %>%
+    select(formula, model_covs, num_cov, cv_mae=mae) %>%
+    slice(1)
+
+reduced_model <- cv_mae %>%
+    ungroup() %>%
+    filter(num_cov<=num_cov[which.min(mae)],
+           num_cov>0,
+           mae<=min(mae)+cv_sd[which.min(mae)]) %>%
+    arrange(num_cov) %>%
+    slice(1) %>%
+    select(-cv_sd, cv_mae=mae)
+
+cv_median_mae <- cv_dat %>%
+    group_by(pid) %>%
+    mutate(median_rate = median(obs)) %>%
+    ungroup() %>%
+    summarise(formula = "",
+              model_covs = "",
+              num_cov = 0,
+              cv_mae = mean(abs(log(obs) - log(median_rate))))
+
+best_models <- bind_rows(best_models, reduced_model, cv_median_mae)
+best_models$model <- c("Fitted",
+                       "Simple",
+                       "Baseline")
+
+## prospective phase predictions
+most_recent_test <- find_recent_file(name_start = "test-preds",
+                                    path="data/")
+test_preds <- readRDS(most_recent_test)
+
+## baseline predictor using median provincial rates over past 10 seasons
+past_season_prob <- function(pred_year,
+                             years_back,
+                             pred_pid,
+                             counts,
+                             incidence) {
+    annual_rates <- counts %>%
+        ungroup() %>%
+        filter(year >= pred_year - years_back,
+               year < pred_year,
+               pid == pred_pid)
+    if(incidence)
+        baseline <- median(100000*annual_rates$obs/
+                               annual_rates$population) else
+            baseline <- median(annual_rates$obs)
+    return(baseline)
+}
+
+test_dat <- dengue_dat %>%
+    filter(year >= FIRST_TEST_YEAR,
+           year <= LAST_YEAR)
+test_dat$baseline <- NA
+for(i in 1:nrow(test_dat)){
+    test_dat$baseline[i] <-
+        past_season_prob(pred_year=test_dat$year[i],
+                         years_back=FIRST_TEST_YEAR-FIRST_YEAR,
+                         pred_pid=test_dat$pid[i],
+                         counts=dengue_dat,
+                         incidence=INCIDENCE)
+}
+
+final_preds_sum <- test_preds %>%
+    left_join(test_dat %>% select(year, pid, population, baseline)) %>%
+    mutate(obs_rate=100000*obs_counts/population,
+           pred_rate=100000*pred_counts/population) %>%
+    group_by(year, pid, group, num_cov, population, obs_rate, baseline) %>%
+    summarise(pred_rate_median = median(pred_rate),
+              bin_pct = mean(round(obs_rate)==round(pred_rate))+10^-5) %>%
+    mutate(ae_pred = abs(log(obs_rate) - log(pred_rate_median)),
+           ae_pred_pct = ae_pred / obs_rate,
+           ae_baseline = abs(log(obs_rate) - log(baseline)),
+           ae_baseline_pct = ae_baseline / obs_rate,
+           rel_ae = ae_pred / ae_baseline,
+           win = ae_pred < ae_baseline) %>%
+    ungroup()
+
+if(SAVE_FILES)
+    write.csv(final_preds_sum,
+              paste0("data/pred-summary-table-",
+                     Sys.Date(),".csv"))
+
+final_table <- test_preds %>%
+    group_by(pid, year, num_cov, obs_counts) %>%
+    summarise(pred_count_median = median(pred_counts)) %>%
+    group_by(num_cov) %>%
+    summarise(test_mae = mean(abs(log(obs_counts) - log(pred_count_median))))
+
+final_model_covs <- final_table$num_cov[which.min(final_table$test_mae)]
+
+best_preds <- test_preds %>%
+    filter(num_cov==final_model_covs)
+
+best_model_sum <- final_preds_sum %>%
+    filter(num_cov == final_model_covs)
+
+## find outbreak results
+outbreak_dat <- dengue_dat %>%
+    transmute(pid,
+              sim=year,
+              sim_rate=100000*obs/population) %>%
+    full_join(select(dengue_dat, pid, year, obs, population)) %>%
+    filter(year>=FIRST_TEST_YEAR,
+           year<=LAST_YEAR,
+           sim<year,
+           sim>=year-10) %>%
+    group_by(pid, year) %>%
+    mutate(pid_median = median(sim_rate),
+           pid_sd = sd(sim_rate),
+           outbreak_threshold = pid_median+2*pid_sd,
+           baseline_pred=mean(sim_rate>outbreak_threshold)) %>%
+    select(pid, year, outbreak_threshold) %>%
+    distinct(.keep_all=TRUE)
+
+pi_dat <- test_preds %>%
+    left_join(test_dat %>% select(pid, year, population)) %>%
+    left_join(outbreak_dat) %>%
+    mutate(obs_rate=100000*obs_counts/population,
+           pred_rate=100000*pred_counts/population) %>%
+    group_by(pid, year, num_cov, population, obs_rate, outbreak_threshold) %>%
+    summarise(
+        pred_025=quantile(pred_rate, probs=.025),
+        pred_975=quantile(pred_rate, probs=.975),
+        pred_10=quantile(pred_rate, probs=.1),
+        pred_90=quantile(pred_rate, probs=.9),
+        pred_rate_median=median(pred_rate),
+        pi_coverage_95=mean(obs_rate>=pred_025 & obs_rate<=pred_975),
+        pi_coverage_80=mean(obs_rate>=pred_10 & obs_rate<=pred_90),
+        outbreak_probability=mean(pred_rate>=outbreak_threshold),
+        outbreak_observed=mean(obs_rate>=outbreak_threshold)) %>%
+    mutate(abs_error=abs(log(pred_rate_median)-log(obs_rate))) %>%
+    ungroup()
+
+if(SAVE_FILES)
+    write.csv(pi_dat,
+              paste0("data/prediction-interval-summary-",
+                     Sys.Date(),".csv"))
+
+pi_simple <- filter(pi_dat, num_cov==1)
+outbreak_roc <- pROC::roc(pi_simple$outbreak_observed,
+                          pi_simple$outbreak_probability,
+                          ci=T)
+
+latest_monthly <- find_recent_file("monthly-counts", "data/")
+monthly_counts <- read.csv(latest_monthly)[,-1]
+
+annual_thai_counts <- monthly_counts %>%
+    group_by(date_sick_year) %>%
+    summarise(count=sum(count))
+
+    write.csv(annual_thai_counts,
+              paste0("data/annual-thai-counts-",Sys.Date(),".csv"))
+@
+
+<<incidence-map, echo=FALSE, warning=FALSE, fig.lp='fig:', fig.cap="\\textbf{The temporal and spatial distribution of dengue hemorrhagic fever incidence rate in Thailand.} \\textbf{(a)} The dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, for each Thai province and season used in this study. \\textbf{(b)} The median DHF incidence rate, per 100,000 population, for each province from 2000-2014. \\textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the incidence rate for each province.", message=FALSE>>=
+prov_counts <- dengue_dat %>%
+    filter(year<=LAST_YEAR) %>%
+    group_by(year, pid) %>%
+    transmute(annual_incidence = 100000*obs/population+pre_season_rate) %>%
+    left_join(thai_prov_data, by=c("pid"="FIPS")) %>%
+    group_by(pid) %>%
+    mutate(median_incidence = median(annual_incidence)) %>%
+    ungroup() %>%
+    mutate(Province = reorder(Province,median_incidence))
+
+incidence_heat_map <- ggplot(prov_counts) +
+    geom_raster(aes(x=year,
+                    y=Province,
+                    fill=log10(annual_incidence))) +
+    scale_fill_gradientn(colours=c("#fff7ec", "#fdbb84", "#7f0000"),
+                         values = rescale(c(0,
+                                            log10(50),
+                                            log10(500))),
+                         guide = "colorbar",
+                         limits=c(0,log10(max(prov_counts$annual_incidence))),
+                         name="Incidence\nrate\n(per 100K)\n",
+                         na.value="white",
+                         labels=c("1", "10", "100", "500"),
+                         breaks=c(0, 1, 2, log10(500))) +
+    geom_vline(aes(xintercept=2009.5)) +
+    scale_x_continuous(expand=c(0,0), breaks = seq(2000,2014,2)) +
+    scale_y_discrete("Provinces sorted by\nmedian incidence rate") +
+    ggtitle("a") +
+    theme_bw() + xlab("") + ylab("") +
+    theme(axis.text.x = element_text(size = 12),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size=16),
+          axis.ticks.y = element_blank(),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14, face="bold"),
+          legend.key.height = unit(1,"cm"),
+          plot.title = element_text(size=20,hjust=-.05, face="bold"))
+
+inc_map <- thai_map
+
+prov_medians <- prov_counts %>%
+    group_by(pid) %>%
+    summarise(median_inc=median(annual_incidence),
+              cov_inc=sd(annual_incidence)/mean(annual_incidence))
+
+inc_map@data <- inc_map@data %>%
+    left_join(prov_medians, by = c("gns_adm1" = "pid")) %>%
+    mutate(ID_1 = dense_rank(woe_name))
+thai_locs <- fortify(inc_map, region="ID_1")
+
+incidence_map <- ggplot(inc_map@data, aes(map_id=ID_1)) +
+    geom_map(aes(fill=median_inc), color = "black", map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    ## use color blind friendly colors
+    scale_fill_gradient(low="white", high = cbbPalette[7],
+                        name="Median\nincidence\nrate\n",
+                        breaks=seq(0, 100, 25),
+                        limits=c(0,110)) +
+    ggtitle("b") +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent", colour = NA),
+          legend.text = element_text(size = 11),
+          legend.title = element_text(size = 12, face="bold"),
+          plot.title = element_text(size=20,hjust=-.05, face="bold")) +
+    coord_map(projection="mercator") + ## to keep scaling right
+    xlab("") + ylab("")
+
+cov_map <- ggplot(inc_map@data, aes(map_id=ID_1)) +
+    geom_map(aes(fill=log2(cov_inc)), color = "black", map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    ## use color blind friendly colors
+    scale_fill_gradient(low="white", high = cbbPalette[7],
+                        name="Coefficient\nof variation\n",
+                        breaks=c(-1, -0.5, 0, 0.5),
+                        labels=round(2^c(-1, -0.5, 0, 0.5),1),
+                        limits=log2(c(round(min(prov_medians$cov_inc),2)-.01,
+                                 round(max(prov_medians$cov_inc),2)+.01))) +
+    ggtitle("c") +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent",
+                                          colour = NA),
+          legend.text = element_text(size = 11),
+          legend.title = element_text(size = 12, face="bold"),
+          plot.title = element_text(size=20,hjust=-.05, face="bold")) +
+    coord_map(projection="mercator") + ## to keep scaling right
+    xlab("") + ylab("")
+
+lay <- rbind(c(1,1),c(2,3))
+gridExtra::grid.arrange(incidence_heat_map, incidence_map, cov_map, layout_matrix=lay)
+@
+
+<<final-covs, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="\\textbf{Weather, incidence, and population (WIP) model covariate fit curves.} The solid lines represent the average association between each covariate in the WIP model and annual dengue hemorrhagic fever (DHF) incidence per 100,000 population, fixing all other covariates at their mean. The dashed lines are the confidence intervals of each association, defined as two standard errors above and below the mean association. The covariates are arranged by performance in the Wald test from largest reduction in deviance \\textbf{(a)} to smallest reduction in deviance \\textbf{(e)}.", fig.asp=1.25, out.width='100%', fig.align='center'>>=
+## fit the best model
+train_fit <- gam(formula = formula(best_cv_formula), data = cv_dat,
+                 family = nb())
+train_sum <- summary(train_fit)
+
+## prepare a plot with the fit curves for each spline in the model
+gam_smooths <- EvaluateSmooths(train_fit, select = 2:length(train_fit$smooth))
+
+plot_smooths <- gam_smooths %>%
+    mutate(var_name=table_dat$prop_name[match(x.var, table_dat$model_covs)],
+           x.val=ifelse(x.var=="population", x.val/1000000, x.val),
+           var_name=ifelse(x.var=="population",
+                           "provincial population, in millions",
+                           as.character(var_name)),
+           x.val=ifelse(x.var=="population_density", x.val/1000, x.val))
+
+plot_rug <- cv_dat %>%
+    mutate(population=population/1000000,
+           population_density=population_density/1000)
+
+ordered_vars <- plot_smooths$x.var %>%
+    unique() %>%
+    reorder(-train_sum$chi.sq[-1]) %>%
+    sort()
+spline_plot <- list()
+for(i in 1:length(ordered_vars)){
+    x_var <- ordered_vars[i]
+    cov_smooths <- filter(plot_smooths, x.var == x_var)
+    var_name <- cov_smooths$var_name[1]
+    x_max <- max(cov_smooths$x.val)
+    x_min <- min(cov_smooths$x.val)
+    y_max <- max(100000*exp(gam_smooths$value+2*gam_smooths$se+train_fit$coefficients[1]))
+    y_min <- min(100000*exp(gam_smooths$value-2*gam_smooths$se+train_fit$coefficients[1]))
+
+    spline_plot[[i]] <- ggplot(data=cov_smooths,
+                               aes(x=x.val)) +
+        geom_line(aes(y=100000*exp(value+train_fit$coefficients[1]))) +
+        geom_line(aes(y=100000*exp(value+2*se+train_fit$coefficients[1])),
+                  linetype="dashed") +
+        geom_line(aes(y=100000*exp(value-2*se+train_fit$coefficients[1])),
+                  linetype="dashed") +
+        geom_rug(data=plot_rug,
+                 aes_string(x=as.character(x_var)),
+                 sides="b",
+                 alpha=0.5) +
+        scale_x_continuous(var_name) +
+        scale_y_log10("",
+                      breaks=round(2^seq(0, 10)),
+                      limits=c(min(100000*exp(gam_smooths$value-
+                                                  2*gam_smooths$se+
+                                                  train_fit$coefficients[1])),
+                               max(100000*exp(gam_smooths$value +
+                                                  2*gam_smooths$se +
+                                                  train_fit$coefficients[1])))) +
+        ggtitle(letters[i]) +
+        theme_bw() +
+        theme(plot.title=element_text(hjust=-.05, face="bold"),
+              axis.title.x=element_text(size=11)) +
+        coord_fixed(ratio=(x_max-x_min)/(log10(y_max)-log10(y_min)), expand = T)
+    if(x_var=="population_density"){
+        spline_plot[[i]] <- spline_plot[[i]] +
+            scale_x_continuous(expression(paste("population per km"^2,", in thousands")))
+    }
+}
+
+gridExtra::grid.arrange(spline_plot[[1]],
+                        spline_plot[[2]],
+                        spline_plot[[3]],
+                        spline_plot[[4]],
+                        spline_plot[[5]],
+                        left="Annual DHF incidence rate, per 100,000 population")
+@
+
+<<pred-interval-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.asp=5/9, fig.cap="\\textbf{Incidence-only model predictions for each prospective season compared to the baseline forecasts and the observed values.} Predictions for dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, from the incidence-only model (blue triangles with gray 80\\% prediction intervals), baseline forecasts (red circles), and observed values (black x's) for each province and season in the prospective phase.">>=
+plot_pi <- pi_dat %>%
+    filter(num_cov==final_model_covs) %>%
+    left_join(select(best_model_sum, pid, year, baseline)) %>%
+    group_by(year) %>%
+    mutate(baseline_ae=abs(log(baseline)-log(obs_rate)),
+           rel_ae=abs_error/baseline_ae,
+           pid_rank=min_rank(pred_rate_median))
+
+ggplot(data=plot_pi, aes(x=pid_rank)) +
+    geom_segment(aes(xend=pid_rank, y=pred_10, yend=pred_90), color="gray85") +
+    geom_point(aes(y=pred_rate_median, shape="Incidence-only model forecasts",
+                   fill="Incidence-only model forecasts",
+                   color="Incidence-only model forecasts"), alpha=0.8) +
+    geom_point(aes(y=baseline, shape="Baseline forecasts",
+                   fill="Baseline forecasts",
+                   color="Baseline forecasts"), alpha=1) +
+    geom_point(aes(y=obs_rate, shape="Observed incidence rate",
+                   fill="Observed incidence rate",
+                   color="Observed incidence rate"), size=2, alpha=1) +
+    facet_wrap(~year, nrow=1) +
+    scale_x_discrete("Province, ordered by forecasted median DHF incidence rate",
+                     expand=c(0.05,0)) +
+    scale_y_log10("DHF incidence rate,\nper 100,000 population",
+                  breaks=c(0.5,1.5,round(25*2^seq(-2,4,2)))) +
+    scale_fill_manual("",
+                       breaks=c("Observed incidence rate",
+                                "Incidence-only model forecasts",
+                                "Baseline forecasts"),
+                       values=cbbPalette[c(7,6,1)]) +
+    scale_shape_manual("",
+                breaks=c("Observed incidence rate",
+                         "Incidence-only model forecasts",
+                         "Baseline forecasts"),
+                values=c(1, 24, 4)) +
+    scale_color_manual("",
+                breaks=c("Observed incidence rate",
+                         "Incidence-only model forecasts",
+                         "Baseline forecasts"),
+                values=cbbPalette[c(7,6,1)]) +
+    theme_bw() +
+    theme(axis.ticks.x=element_blank(),
+          axis.text.x=element_blank(),
+          panel.grid.major.x=element_blank(),
+          legend.position="bottom")
+@
+
+<<outbreak-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="\\textbf{Accuracy of outbreak prediction by incidence-only model.} \\textbf{(a)} The percentage of provinces with an outbreak each year by predicted outbreak probability quantile range from the incidence-only model. An outbreak is defined as DHF incidence greater than two standard deviations above the median DHF incidence for the past ten years. The hollow triangles indicate the percentage of provinces in each quantile range with an observed outbreak across all years and the black diamonds indicate the average predicted percentage of outbreaks. \\textbf{(b)} The incidence-only model's probability of outbreak for each province-season in the prospective phase and whether or not an outbreak was observed. The blue loess smoothed line shows the probability of observing an outbreak for a given predicted outbreak probability. \\textbf{(c)} The receiver operating characteristic (ROC) curve based on the incidence-only model's sensitivity and specificity on outbreak predictions. The area under the ROC curve (AUC) is indicated below the line of no-discrimination (dashed).">>=
+outbreak_plot_dat <- pi_simple %>%
+    mutate(pred_ob_quantile=.01*(outbreak_probability<=0.01),
+           pred_ob_quantile=pred_ob_quantile+.05*(outbreak_probability<=0.05)*
+               (outbreak_probability>0.01),
+           pred_ob_quantile=pred_ob_quantile+.25*(outbreak_probability<=0.25)*
+               (outbreak_probability>0.05),
+           pred_ob_quantile=pred_ob_quantile+.5*(outbreak_probability<=0.5)*
+               (outbreak_probability>0.25),
+           pred_ob_quantile=pred_ob_quantile+1*(outbreak_probability>0.5)) %>%
+    group_by(year, pred_ob_quantile) %>%
+    summarise(num_provs=n(),
+              num_outbreaks=sum(outbreak_observed)) %>%
+    mutate(ob_pct=num_outbreaks/num_provs)
+
+avg_outbreak_plot_dat <- pi_simple %>%
+    mutate(pred_ob_quantile=.01*(outbreak_probability<=0.01),
+           pred_ob_quantile=pred_ob_quantile+.05*(outbreak_probability<=0.05)*
+               (outbreak_probability>0.01),
+           pred_ob_quantile=pred_ob_quantile+.25*(outbreak_probability<=0.25)*
+               (outbreak_probability>0.05),
+           pred_ob_quantile=pred_ob_quantile+.5*(outbreak_probability<=0.5)*
+               (outbreak_probability>0.25),
+           pred_ob_quantile=pred_ob_quantile+1*(outbreak_probability>0.5)) %>%
+    group_by(pred_ob_quantile) %>%
+    summarise(year=2015,
+              num_provs=n(),
+              num_outbreaks=sum(outbreak_observed),
+              ob_pct=num_outbreaks/num_provs,
+              exp_outbreaks=mean(outbreak_probability))
+
+outbreak_plot <-
+    ggplot(data=outbreak_plot_dat,
+                        aes(x=as.factor(pred_ob_quantile),
+                            y=100*ob_pct)) +
+    geom_point(aes(color=as.factor(year),
+                   size=num_provs,
+                   shape=as.factor(year)),
+               alpha=0.6,
+               position=position_dodge(0.35)) +
+    geom_point(data=avg_outbreak_plot_dat,
+               aes(x=as.factor(pred_ob_quantile),
+                   y=100*exp_outbreaks,
+                   size=10,
+                   color=as.factor(year+1),
+                   shape=as.factor(year+1))) +
+    geom_point(data=avg_outbreak_plot_dat,
+               aes(x=as.factor(pred_ob_quantile),
+                   y=100*ob_pct,
+                   size=10,
+                   color=as.factor(year),
+                   shape=as.factor(year))) +
+    ggtitle("a") +
+    scale_x_discrete("Forecasted outbreak probability, by quantile",
+                     labels=c("0-1%", "1-5%", "5-25%", "25-50%", "50-100%")) +
+    scale_y_continuous("Observed percentage of\nprovinces with outbreaks",
+                       breaks=seq(0,100,25),
+                       labels=c("0%", "25%", "50%", "75%", "100%")) +
+    scale_color_manual("Year",
+                       labels=c("2010", "2011", "2012", "2013", "2014",
+                                "Average", "Forecasted"),
+                       values=cbbPalette[c(2:4,6,8,1,1)]) +
+    scale_size_continuous("Number of\nprovinces") +
+    scale_shape_manual("Year",
+                       labels=c("2010", "2011", "2012", "2013", "2014",
+                                "Average", "Forecasted"),
+                       values = c(16,16,16,16,16,2,18)) +
+    # coord_fixed() +
+    theme_bw() +
+    theme(plot.title = element_text(size=20,hjust=-.05, face="bold"),
+          legend.title = element_text(size=11),
+          legend.position = "top",
+          legend.box = "horizontal"
+          )
+
+pred_vs_obs_outbreak_plot <-
+    ggplot(data=pi_simple,
+           aes(x=outbreak_probability,
+               y=outbreak_observed)) +
+    geom_point(alpha=0.3) +
+    geom_smooth(method = "loess",
+                se=F) +
+    geom_line(aes(x= round(outbreak_probability), y=round(outbreak_probability)),
+              linetype="dashed") +
+    ggtitle("b") +
+    scale_x_continuous("Forecasted outbreak probability") +
+    scale_y_continuous("Outbreak observed") +
+    coord_fixed(ylim=c(0,1), xlim=c(0,1)) +
+    theme_bw() +
+    theme(plot.title = element_text(size=20,hjust=-.05, face="bold"))
+
+roc_plot_dat <- data_frame(TPR=outbreak_roc$sensitivities,
+                           FPR=1-outbreak_roc$specificities)
+
+roc_plot <-
+    ggplot() +
+    geom_point(data=roc_plot_dat,
+           aes(y=TPR,
+               x=FPR)) +
+    geom_line(data=roc_plot_dat,
+           aes(y=TPR,
+               x=FPR)) +
+    geom_line(aes(x=seq(0,1,length.out = 330),
+                  y=seq(0,1,length.out = 330)),
+              linetype="dashed") +
+    geom_text(aes(label=paste("AUC = ",
+                              round(outbreak_roc$auc,3)),
+                  x=0.75,
+                  y=0.25)) +
+    scale_x_continuous("1 - Specificity") +
+    scale_y_continuous("Sensitivity") +
+    ggtitle("c") +
+    coord_fixed() +
+    theme_bw() +
+    theme(plot.title = element_text(size=20,hjust=-.05, face="bold"))
+
+gridExtra::grid.arrange(outbreak_plot,
+                        pred_vs_obs_outbreak_plot,
+                        roc_plot,
+                        layout_matrix=rbind(c(1,1),
+                                            c(2,3)))
+@
+
+<<rel-mae-maps, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="\\textbf{Geographic variation in model and performance.} \\textbf{(a)} The best fitted model in the prospective phase for each Ministry of Public Health (MOPH) region, which shows spatial patterns of performance. \\textbf{(b)} The relative mean absolute error of the predictions for each MOPH region from the models in (a) over the baseline forecasts. Areas with: less error than the baseline are blue, more error than the baseline are red, and equal to the baseline are white.">>=
+library(tidyr)
+## prepare data to make MOPH-level performance maps
+best_model_moph <- final_preds_sum %>%
+    left_join(select(best_models, num_cov, model)) %>%
+    left_join(select(thai_prov_data, -Population),
+              by=c("pid"="FIPS")) %>%
+    select(pid, MOPH_Admin_Code, ae_pred, ae_baseline, model) %>%
+    group_by(MOPH_Admin_Code, model) %>%
+    mutate(rel_mae=mean(ae_pred)/mean(ae_baseline)) %>%
+    group_by(pid) %>%
+    arrange(rel_mae) %>%
+    slice(1) %>%
+    ungroup()
+
+
+moph_model_map <- thai_map
+moph_model_map@data <- moph_model_map@data %>%
+    left_join(best_model_moph, by = c("gns_adm1" = "pid")) %>%
+    mutate(ID_1 = dense_rank(MOPH_Admin_Code))
+thai_locs <- fortify(moph_model_map, region="MOPH_Admin_Code")
+
+best_moph_model_map <- ggplot(moph_model_map@data, aes(map_id=MOPH_Admin_Code)) +
+    geom_map(aes(fill=model),
+             color = "black",
+             map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    scale_fill_manual("Best\nfitted\nmodel",
+                      breaks=c("Fitted",
+                               "Simple"),
+                      labels=c("Weather,\nincidence,and\npopulation\n(WIP)",
+                               "Incidence\nonly"),
+                      values = cbbPalette[c(8,4)]) +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent", colour = NA),
+          legend.key.height = unit(1, "cm"),
+          # legend.key.width = unit(0.8, "cm"),
+          legend.position="bottom",
+          plot.title = element_text(size=20,hjust=-.05, face="bold")) +
+    coord_map(projection="mercator") + ## to keep scaling right
+    xlab("") + ylab("")
+
+#### make a map of relative MAE for each MOPH region
+color_diff <- ceiling(100*max(abs(1-best_model_moph$rel_mae)))/100
+color_max <- 1+color_diff
+color_min <- 1-color_diff
+scale_max <- floor(10*color_max)/10
+scale_min <- ceiling(10*color_min)/10
+
+rel_mae_moph_map <- ggplot(moph_model_map@data,
+                           aes(map_id=MOPH_Admin_Code)) +
+    geom_map(aes(fill=rel_mae), color = "black", map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    scale_fill_gradient2(low=cbbPalette[6],
+                         mid="white",
+                         high=cbbPalette[7],
+                         midpoint=1,
+                         limits=c(color_min, color_max),
+                         breaks=seq(scale_min, scale_max, length.out = 5),
+                         labels=paste0(100*seq(scale_min,
+                                               scale_max,
+                                               length.out = 5),
+                                       "%"),
+                         name="rMAE") +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent",
+                                          colour = NA),
+          legend.key.height = unit(1, "cm"),
+          legend.key.width = unit(1, "cm"),
+          legend.position="bottom",
+          plot.title = element_text(size=20,hjust=-.05, face="bold")) +
+    coord_map(projection="mercator") +
+    xlab("") + ylab("")
+
+lay <- cbind(1,2)
+
+gridExtra::grid.arrange(best_moph_model_map +
+                            ggtitle("a"),
+                        rel_mae_moph_map +
+                            ggtitle("b"),
+                        layout_matrix=lay)
+@
+
+\end{document}

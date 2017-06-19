@@ -10,7 +10,7 @@ FIRST_TEST_YEAR <- 2010
 LAST_TEST_YEAR <- 2014
 MAX_KNOTS <- 8
 
-setwd(here:here())
+setwd(here::here())
 source("R/annual-forecasting-utilities.R")
 
 ## read in latest data for prediction

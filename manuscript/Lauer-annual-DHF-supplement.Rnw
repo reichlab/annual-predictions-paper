@@ -1,0 +1,834 @@
+\documentclass{article}
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amssymb,amsmath}
+\usepackage{microtype}
+\usepackage{cite}
+\usepackage{multirow}
+\usepackage{hhline}
+\usepackage{enumerate}
+\usepackage[english]{babel}
+\usepackage{wrapfig}
+\usepackage{multicol}
+\usepackage{textcomp}
+\usepackage{float}
+\usepackage{array}
+\usepackage{xr-hyper}
+\usepackage{hyperref}
+\title{Supplemental Material}
+\author{Stephen A. Lauer*, Krzysztof Sakrejda, Evan L. Ray, Lindsay T. Keegan, Qifang Bi, \\ Paphanij Suangtho, Soawapak Hinjoy, Sopon Iamsirithaworn, Suthanun Suthachana, \\ Yongjua Laosiritaworn, Derek A.T. Cummings, Justin Lessler, and Nicholas G. Reich}
+
+\begin{document}
+
+\maketitle
+
+<<libraries, include=FALSE>>=
+library(dplyr)
+library(ggplot2)
+library(maptools)
+library(xtable)
+library(mgcv)
+library(mapproj)
+library(dengueThailand)
+library(scales)
+library(grid)
+library(tidyr)
+library(ggrepel)
+# devtools::install_github("krlmlr/here")
+# devtools::install_github("hunzikp/MapColoring")
+library(MapColoring)
+
+opts_knit$set(root.dir = here::here())
+@
+
+<<setup, include=FALSE>>=
+data("thai_prov_data")
+
+FIRST_YEAR <- 2000
+LAST_TEST_YEAR <- 2014
+LAST_YEAR <- 2014
+FIRST_TEST_YEAR <- 2010
+MAX_KNOTS <- 8
+INCIDENCE <- TRUE
+OVERWRITE <- FALSE
+
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+source("R/annual-forecasting-utilities.R")
+##### All of data required to make these visuals
+#####
+
+## read in latest data for prediction
+most_recent_dat <- find_recent_file(name_start = "annual-pred-data",
+                                    path="data/")
+
+dengue_dat <- read.csv(most_recent_dat)[,-1]
+
+## data used for cross validation
+cv_dat <- filter(dengue_dat, year<FIRST_TEST_YEAR)
+
+## map data
+world <- readShapeSpatial("data/map-data/ne_10m_admin_1_states_provinces.shp")
+thai_map <- world[world$adm0_a3=="THA",]
+thai_map <- thai_map[!is.na(thai_map$woe_name),]
+thai_map@data <- thai_map@data %>%
+    left_join(select(thai_prov_data, FIPS, MOPH_Admin_Code),
+              by = c("gns_adm1" = "FIPS"))
+
+## if we have run simulations in the past, find and load them
+most_recent_cv <- find_recent_file(name_start = "cv-train",
+                                   path="data/")
+cv_train <- readRDS(most_recent_cv)
+
+### create a table of all the best single covariate full country models
+
+## label each variable if they are available to group 1, 2, or 3
+var_set <- data_frame(var = names(dengue_dat),
+                      set = c(rep(1, 17), rep(2, 10), rep(3, 11)))
+
+table_dat <- cv_train %>%
+    filter(num_cov==1) %>%
+    group_by(model_covs, year, knots) %>%
+    summarise(year_mae = mean(abs(log(obs_counts)-log(pred_counts)))) %>%
+    group_by(model_covs, knots) %>%
+    summarise(cv_mae = mean(year_mae),
+              cv_se = sd(year_mae)) %>%
+    group_by(model_covs) %>%
+    filter(knots <= knots[which.min(cv_mae)],
+           cv_mae <= cv_mae[which.min(cv_mae)]+cv_se[which.min(cv_mae)]) %>%
+    filter(knots == min(knots)) %>%
+    left_join(var_set, by = c("model_covs" = "var")) %>%
+    arrange(model_covs) %>%
+    rename(best_k=knots)
+
+## fill in full variable names
+table_dat$prop_name <- c("mean February humidity",
+                         "total February rainfall (ESRL)",
+                         "maximum February rainfall (NOAA)",
+                         "total February rainfall (NOAA)",
+                         "mean February temperature (ESRL)",
+                         "mean February temperature (NCDC)",
+                         "mean February temperature (NOAA)",
+                         "mean January humidity",
+                         "total January rainfall (ESRL)",
+                         "maximum January rainfall (NOAA)",
+                         "total January rainfall (NOAA)",
+                         "mean January temperature (ESRL)",
+                         "mean January temperature (NCDC)",
+                         "mean January temperature (NOAA)",
+                         "last high-season incidence rate",
+                         "last post-season incidence rate",
+                         "mean March humidity",
+                         "total March rainfall (ESRL)",
+                         "maximum March rainfall (NOAA)",
+                         "total March rainfall (NOAA)",
+                         "mean March temperature (ESRL)",
+                         "mean March temperature (NCDC)",
+                         "mean March temperature (NOAA)",
+                         "maximum low-season humidity",
+                         "maximum low-season rainfall (NOAA)",
+                         "maximum low-season temperature (NCDC)",
+                         "mean low-season temperature (ESRL)",
+                         "minimum low-season humidity",
+                         "minimum low-season temperature (NCDC)",
+                         "provincial population",
+                         "population per square kilometer",
+                         "pre-season incidence rate",
+                         "estimated relative susceptibility rate",
+                         "total low-season rainfall (ESRL)",
+                         "total low-season rainfall (NOAA)")
+
+## find best models given CV data
+cv_mae <- cv_train %>%
+    filter(num_cov>1|
+               num_cov==1 &
+               knots == table_dat$best_k[match(model_covs, table_dat$model_covs)]) %>%
+    group_by(year, formula, model_covs, num_cov) %>%
+    summarise(year_mae = mean(abs(log(obs_counts)-log(pred_counts)))) %>%
+    group_by(formula, model_covs, num_cov) %>%
+    summarise(mae = mean(year_mae),
+              cv_sd = sd(year_mae)) %>%
+    group_by(num_cov) %>%
+    filter(mae == min(mae)) %>%
+    ungroup() %>%
+    arrange(mae, num_cov)
+
+best_cv_formula <- as.character(cv_mae$formula[1])
+
+best_models <- cv_mae %>%
+    select(formula, model_covs, num_cov, cv_mae=mae) %>%
+    slice(1)
+
+reduced_model <- cv_mae %>%
+    ungroup() %>%
+    filter(num_cov<=num_cov[which.min(mae)],
+           mae<=min(mae)+cv_sd[which.min(mae)]) %>%
+    arrange(num_cov) %>%
+    slice(1) %>%
+    select(-cv_sd, cv_mae=mae)
+
+cv_median_mae <- cv_dat %>%
+    group_by(pid) %>%
+    mutate(median_rate = median(obs)) %>%
+    ungroup() %>%
+    summarise(formula = "",
+              model_covs = "",
+              num_cov = 0,
+              cv_mae = mean(abs(log(obs) - log(median_rate))))
+
+best_models <- bind_rows(best_models, reduced_model, cv_median_mae)
+best_models$model <- c("WIP",
+                       "Incidence-only",
+                       "Baseline")
+
+## testing phase predictions
+most_recent_test <- find_recent_file(name_start = "test-preds",
+                                     path="data/")
+test_preds <- readRDS(most_recent_test)
+
+test_preds <- test_preds %>%
+    filter(num_cov %in% c(min(num_cov), max(num_cov)))
+
+## baseline predictor using median provincial rates over past 10 seasons
+past_season_prob <- function(pred_year,
+                             years_back,
+                             pred_pid,
+                             counts,
+                             incidence) {
+    annual_rates <- counts %>%
+        ungroup() %>%
+        filter(year >= pred_year - years_back,
+               year < pred_year,
+               pid == pred_pid)
+    if(incidence)
+        baseline <- median(100000*annual_rates$obs/
+                               annual_rates$population) else
+                                   baseline <- median(annual_rates$obs)
+                               return(baseline)
+}
+
+test_dat <- dengue_dat %>%
+    filter(year >= FIRST_TEST_YEAR,
+           year <= LAST_TEST_YEAR)
+test_dat$baseline <- NA
+for(i in 1:nrow(test_dat)){
+    test_dat$baseline[i] <-
+        past_season_prob(pred_year=test_dat$year[i],
+                         years_back=FIRST_TEST_YEAR-FIRST_YEAR,
+                         pred_pid=test_dat$pid[i],
+                         counts=dengue_dat,
+                         incidence=INCIDENCE)
+}
+
+final_preds_sum <- test_preds %>%
+    left_join(test_dat %>% select(year, pid, population, baseline)) %>%
+    mutate(obs_rate=100000*obs_counts/population,
+           pred_rate=100000*pred_counts/population) %>%
+    group_by(year, pid, group, num_cov, population, obs_rate, baseline) %>%
+    summarise(pred_rate_median = median(pred_rate),
+              bin_pct = mean(floor(obs_rate)==floor(pred_rate))+10^-5) %>%
+    mutate(ae_pred = abs(log(obs_rate) - log(pred_rate_median)),
+           ae_pred_pct = ae_pred / obs_rate,
+           ae_baseline = abs(log(obs_rate) - log(baseline)),
+           ae_baseline_pct = ae_baseline / obs_rate,
+           rel_ae = ae_pred / ae_baseline,
+           win = ae_pred < ae_baseline,
+           log_score=log(bin_pct)) %>%
+    ungroup()
+
+overall_mae <- final_preds_sum %>%
+    group_by(num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE),
+              avg_bin_pct = mean(bin_pct),
+              avg_log_score = mean(log_score))
+
+pid_mae <- final_preds_sum %>%
+    group_by(pid, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              var_obs_rate = var(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE),
+              avg_bin_pct = mean(bin_pct),
+              avg_log_score = mean(log_score)) %>%
+    ungroup()
+
+annual_mae <- final_preds_sum %>%
+    group_by(year, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE),
+              avg_bin_pct = mean(bin_pct),
+              avg_log_score = mean(log_score)) %>%
+    ungroup()
+
+province_data <- final_preds_sum %>%
+    left_join(thai_prov_data, by = c("pid" = "FIPS"))
+
+moph_mae <- province_data %>%
+    group_by(MOPH_Admin_Code, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred/mae_baseline,
+              win_pct = mean(win, na.rm = TRUE),
+              avg_bin_pct = mean(bin_pct),
+              avg_log_score = mean(log_score)) %>%
+    ungroup()
+
+final_table <- test_preds %>%
+    group_by(pid, year, num_cov, obs_counts) %>%
+    summarise(pred_count_median = median(pred_counts)) %>%
+    group_by(num_cov) %>%
+    summarise(test_mae = mean(abs(log(obs_counts) - log(pred_count_median))))
+
+final_model_covs <- final_table$num_cov[which.min(final_table$test_mae)]
+
+best_preds <- test_preds %>%
+    filter(num_cov==final_model_covs)
+
+best_preds_sum <- final_preds_sum %>%
+    filter(num_cov == final_model_covs)
+@
+
+<<moph-region-map, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Map of the Thailand Ministry of Public Health administrative regions (MOPH regions). These 13 MOPH regions are geographically clustered sets of 4-8 provinces (with the exception of Bangkok which is its own region) co-operatively managed by a regional health office.", fig.lp="sup:", fig.pos='H'>>=
+## create a map of MOPH regions with own polygons, so we can find centroids of each region
+## code to make this was found on: https://gis.stackexchange.com/questions/63577/joining-polygons-in-r
+## join the polygons by MOPH region
+moph_poly <- unionSpatialPolygons(thai_map, thai_map@data$MOPH_Admin_Code)
+## condense dataframe from nrow=76 to nrow=13
+moph_df <- as.data.frame(thai_map) %>%
+    group_by(MOPH_Admin_Code) %>%
+    summarise(area_sqkm=sum(area_sqkm)) %>%
+    ungroup
+## row names need to line up with MOPH Admin Code
+row.names(moph_df) <- as.character(moph_df$MOPH_Admin_Code)
+## make SpatialPolygonsDataFrame
+moph_map <- SpatialPolygonsDataFrame(moph_poly, moph_df)
+## find centroids. code found on: https://gis.stackexchange.com/questions/43543/how-to-calculate-polygon-centroids-in-r-for-non-contiguous-shapes
+moph_centroids <- getSpPPolygonsLabptSlots(moph_map)
+colnames(moph_centroids) <- c("longitude", "latitude")
+moph_map@data <- cbind(moph_map@data, moph_centroids)
+## Bangkok label covers Bangkok, so need to move it and have arrow
+moph_map@data$BKK_Code <- ifelse(moph_map@data$MOPH_Admin_Code==0,
+                                  0, NA)
+## Other MOPH Regions should stay in place
+moph_map@data$MOPH_Code <- ifelse(moph_map@data$MOPH_Admin_Code==0,
+                                         NA, moph_map@data$MOPH_Admin_Code)
+thai_locs <- fortify(moph_map)
+
+color_order <- getColoring(moph_map)[c(1,2,6:13,3:5)]+1
+color_order[9] <- 5
+
+ggplot(moph_map@data, aes(map_id=MOPH_Admin_Code)) +
+    geom_map(aes(fill=as.factor(MOPH_Admin_Code)),
+             color = "black",
+             map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    geom_label(aes(label=MOPH_Code, x=longitude, y=latitude)) +
+    geom_label_repel(aes(label=BKK_Code, x=longitude, y=latitude), nudge_y=-1, arrow=arrow(angle=0)) +
+    scale_fill_manual("MOPH\nRegion", values=cbPalette[color_order]) +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent", colour = NA),
+          plot.title = element_text(hjust=-.05, face="bold"),
+          legend.position="none") +
+    coord_map(projection="mercator") + ## to keep scaling right
+    xlab("") + ylab("")
+@
+
+<<season-timing, echo=FALSE, tidy=TRUE, message=FALSE, eval=TRUE, fig.lp='sup:', fig.cap="\\textbf{Time frames over which covariates and prediction target are aggregated, with respect to calendar time and seasons.} In addition to the listed time frames, some covariates are aggregated over specific months, an entire year, or the low-season prior to the prediction target.">>=
+two_seasons <- data_frame(Timing=c("Annual", "Annual", "Season",
+                                   "Season", "Season", "Season", "Season",
+                                   "Covariate\naggregation\ntime frames",
+                                   "Covariate\naggregation\ntime frames",
+                                   "Covariate\naggregation\ntime frames",
+                                   "Covariate\naggregation\ntime frames"),
+                          Name=c("Prior year",
+                                 "Current year",
+                                 "Low",
+                                 "High",
+                                 "Low",
+                                 "High",
+                                 "Low",
+                                 "Annual counts\n(prediction target)",
+                                 "Post-\nseason",
+                                 "Pre-\nseason",
+                                 "Prior high-season"),
+                          Date_Start=as.Date(c("2000-01-01",#Last
+                                               "2001-01-01",#This
+                                               "2000-01-01",#Low
+                                               "2000-04-01",#High
+                                               "2000-11-01",#Low
+                                               "2001-04-01",#High
+                                               "2001-11-01",#Low
+                                               "2001-04-01",#Predict
+                                               "2000-11-01",#Post
+                                               "2001-01-01",#Pre
+                                               "2000-04-01")),#Last high
+                          Date_Mid=as.Date(c("2000-07-01",#Last
+                                             "2001-07-01",#This
+                                             "2000-02-14",#Low
+                                             "2000-07-16",#High
+                                             "2001-01-15",#Low
+                                             "2001-07-16",#High
+                                             "2001-12-01",#Low
+                                             "2001-08-16",#Predict
+                                             "2000-12-01",#Post
+                                             "2001-02-14",#Pre
+                                             "2000-07-16")),#Last high
+                          Date_End=as.Date(c("2000-12-31",#Last
+                                             "2001-12-31",#This
+                                             "2000-03-31",#Low
+                                             "2000-10-31",#High
+                                             "2001-03-31",#Low
+                                             "2001-10-31",#High
+                                             "2001-12-31",#Low
+                                             "2001-12-31",#Predict
+                                             "2000-12-31",#Post
+                                             "2001-03-31",#Pre
+                                             "2000-10-31")),#Last high
+                          place=c(rep(-1,7), -0.5, 1.25, -0.5, -1))
+
+ggplot(data=two_seasons, aes(y=Timing, x=Date_Mid)) +
+    geom_errorbarh(aes(xmin=Date_Start, xmax=Date_End), height=0.3) +
+    geom_text(aes(y=Timing, x=Date_Mid, label=Name, vjust=place)) +
+    scale_y_discrete("",
+                     limits=c("Covariate\naggregation\ntime frames",
+                              "Season",
+                              "Annual")) +
+    scale_x_date("",
+                 breaks=as.Date(c("2000-01-01",
+                                  "2000-04-01",
+                                  "2000-07-01",
+                                  "2000-11-01",
+                                  "2001-01-01",
+                                  "2001-04-01",
+                                  "2001-07-01",
+                                  "2001-11-01",
+                                  "2002-01-01")),
+                 labels = c("Prior January",
+                            "Prior April",
+                            "Prior July",
+                            "Prior November",
+                            "Current January",
+                            "Current April",
+                            "Current July",
+                            "Current November",
+                            "Next January")) +
+    theme_bw() +
+    theme_minimal() +
+    theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+          panel.grid=element_blank(),
+          axis.ticks=element_line(color="gray50"),
+          axis.line=element_line(color="gray50"))
+@
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{ l l c c }
+        \hline
+        Covariate Type & Covariate Name & Incidence-only & WIP \\
+        \hline \hline
+        \multirow{4}{*}{Incidence} & estimated relative susceptibility rate & &   \\
+        & last high-season incidence rate & & \\
+        & last post-season incidence rate & & \\
+        & pre-season incidence rate & \checkmark & \checkmark  \\ \hline
+        \multirow{2}{*}{Demographics} & population per square kilometer & & \\
+        & provincial population & & \checkmark \\ \hline
+        \multirow{5}{*}{Humidity} & maximum low-season humidity & & \\
+        & minimum low-season humidity & & \\
+        & mean January humidity & & \\
+        & mean February humidity & & \\
+        & mean March humidity & & \\ \hline
+        \multirow{12}{*}{Rainfall} & maximum low-season rainfall (NOAA) & & \\
+        & total low-season rainfall (ESRL) & & \\
+        & total low-season rainfall (NOAA) & & \\
+        & maximum January rainfall (NOAA) & & \\
+        & total January rainfall (ESRL) & & \checkmark \\
+        & total January rainfall (NOAA) & & \\
+        & maximum February rainfall (NOAA) & & \\
+        & total February rainfall (ESRL) & & \\
+        & total February rainfall (NOAA) & & \\
+        & maximum March rainfall (NOAA) & & \\
+        & total March rainfall (ESRL) & & \\
+        & total March rainfall (NOAA) & & \\ \hline
+        \multirow{12}{*}{Temperature} & maximum low-season temperature (NCDC) & & \\
+        & mean low-season temperature (ESRL) & & \checkmark \\
+        & minimum low-season temperature (NCDC) & & \\
+        & mean January temperature (ESRL) & & \checkmark \\
+        & mean January temperature (NCDC) & & \\
+        & mean January temperature (NOAA) & & \\
+        & mean February temperature (ESRL) & & \\
+        & mean February temperature (NCDC) & & \\
+        & mean February temperature (NOAA) & & \\
+        & mean March temperature (ESRL) & & \\
+        & mean March temperature (NCDC) & & \\
+        & mean March temperature (NOAA) & & \\
+        \hline
+        \end{tabular}
+    \caption{List of all covariates considered for inclusion and models for which they were selected}
+    \label{sup:covs}
+\end{table}
+
+<<big-supplementary-table, echo=FALSE, results='asis', warning=FALSE, fig.pos="center", message=FALSE>>=
+outbreak_dat <- dengue_dat %>%
+    transmute(pid,
+              sim=year,
+              sim_rate=100000*obs/population) %>%
+    full_join(select(dengue_dat, pid, year, obs, population)) %>%
+    filter(year>=2010,
+           year<2015,
+           sim<year,
+           sim>=year-10) %>%
+    group_by(pid, year) %>%
+    mutate(pid_median = median(sim_rate),
+           pid_sd = sd(sim_rate),
+           outbreak_threshold = pid_median+2*pid_sd,
+           baseline_pred=mean(sim_rate>outbreak_threshold)) %>%
+    select(pid, year, outbreak_threshold) %>%
+    distinct(.keep_all=TRUE)
+
+
+reference_dat <- test_dat %>%
+    left_join(outbreak_dat) %>%
+    transmute(year=year,
+              pid=pid,
+              group=NA,
+              num_cov=0,
+              population=population,
+              obs_rate=100000*obs/population,
+              baseline=baseline,
+              pred_rate=baseline,
+              ae_pred=abs(log(obs_rate)-log(pred_rate)),
+              ae_pred_pct = ae_pred / obs_rate,
+              ae_baseline = abs(log(obs_rate) - log(baseline)),
+              ae_baseline_pct = ae_baseline / obs_rate,
+              rel_ae = ae_pred / ae_baseline,
+              win = NA,
+              outbreak_observed = as.numeric(obs_rate>outbreak_threshold))
+
+pi_dat <- test_preds %>%
+    left_join(test_dat %>% select(pid, year, population)) %>%
+    mutate(obs_rate=100000*obs_counts/population,
+           pred_rate=100000*pred_counts/population) %>%
+    group_by(pid, year, num_cov, population, obs_rate) %>%
+    summarise(
+        pred_10=quantile(pred_rate, probs=.1),
+        pred_90=quantile(pred_rate, probs=.9),
+        pred_rate_median=median(pred_rate),
+        pi_coverage_80=mean(obs_rate>=pred_10 & obs_rate<=pred_90)) %>%
+    mutate(abs_error=abs(log(pred_rate_median)-log(obs_rate))) %>%
+    ungroup() %>%
+    left_join(select(thai_prov_data, -Population), by=c("pid"="FIPS"))
+
+overall_table <- reference_dat %>%
+    group_by(num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE),
+              avg_bin_pct = NA,
+              avg_log_score = NA) %>%
+    bind_rows(overall_mae) %>%
+    left_join(
+        pi_dat %>%
+            group_by(num_cov) %>%
+            summarise(pi_coverage = mean(pi_coverage_80))
+    ) %>%
+    arrange(desc(num_cov)) %>%
+    transmute(Model = ifelse(num_cov==max(final_table$num_cov),
+                             "\\hline WIP",
+                             ifelse(num_cov==0,
+                                    "Baseline",
+                                    "Incidence-only")),
+              MAE = ifelse(mae_pred==min(mae_pred, na.rm=T),
+                           paste0("\\textbf{",
+                                  formatC(mae_pred,digits=2, format="f"),
+                                  "}"),
+                           formatC(mae_pred,digits=2, format="f")),
+              `rMAE` = ifelse(rel_mae==min(rel_mae, na.rm=T),
+                                      paste0("\\textbf{",
+                                             formatC(rel_mae,
+                                                     digits=2,
+                                                     format="f"),
+                                             "}"),
+                                      formatC(rel_mae,digits=2, format="f")),
+              `\\% of forecasts better than baseline` = ifelse(win_pct!=min(win_pct, na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(100*win_pct,
+                                                           digits=1,
+                                                           format="f"),
+                                                   "}"),
+                                            formatC(100*win_pct,
+                                                    digits=1,
+                                                    format="f")),
+              `80\\% PI coverage` = ifelse(abs(.80-pi_coverage)!=
+                                               max(abs(.80-pi_coverage),
+                                                   na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(100*pi_coverage,
+                                                           digits=1,
+                                                           format="f"),
+                                                   "}"),
+                                            formatC(100*pi_coverage,
+                                                    digits=1,
+                                                    format="f")))
+
+print(xtable(overall_table,
+             caption="Results for each model across all regions and years in the prospective prediction phase. Numbers in bold highlight which model performed best for each metric.",
+             label = "sup:overall",
+             digits = c(0,0,2,2,1,1),
+             align = c("l","l","r", "b{1cm}", "b{1.35cm}","b{1.5cm}")),
+      include.rownames = FALSE,
+      table.placement="H",
+      sanitize.text.function=identity)
+
+## annual MAEs
+annual_table <- reference_dat %>%
+    left_join(thai_prov_data, by = c("pid" = "FIPS")) %>%
+    group_by(year, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              num_outbreaks = sum(outbreak_observed, na.rm=TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE),
+              avg_bin_pct = NA,
+              avg_log_score = NA) %>%
+    bind_rows(annual_mae) %>%
+    left_join(
+        pi_dat %>%
+            group_by(num_cov, year) %>%
+            summarise(pi_coverage = mean(pi_coverage_80))
+    ) %>%
+    arrange(year, desc(num_cov)) %>%
+    group_by(year) %>%
+    transmute(Model = ifelse(num_cov==max(final_table$num_cov),
+                             "\\hline WIP",
+                             ifelse(num_cov==0,
+                                    "Baseline",
+                                    "Incidence-only")),
+              Year = ifelse(Model=="Incidence-only",
+                            as.character(year),
+                            ""),
+              `Mean provincial incidence` = ifelse(Model=="Incidence-only",
+                                                   round(mean_obs_rate),
+                                                   ""),
+              Outbreaks = ifelse(Model=="Incidence-only",
+                                           max(num_outbreaks, na.rm=T),
+                                           ""),
+              MAE = ifelse(mae_pred==min(mae_pred, na.rm=T),
+                           paste0("\\textbf{",
+                                  formatC(mae_pred,digits=2, format="f"),
+                                  "}"),
+                           formatC(mae_pred,digits=2, format="f")),
+              `rMAE` = ifelse(rel_mae==min(rel_mae, na.rm=T),
+                                      paste0("\\textbf{",
+                                             formatC(rel_mae,
+                                                     digits=2,
+                                                     format="f"),
+                                             "}"),
+                                      formatC(rel_mae,digits=2, format="f")),
+              `\\% of forecasts better than baseline` = ifelse(win_pct!=min(win_pct, na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(100*win_pct,
+                                                           digits=1,
+                                                           format="f"),
+                                                   "}"),
+                                            formatC(100*win_pct,digits=1, format="f")),
+              `80\\% PI coverage` = ifelse(abs(.80-pi_coverage)!=
+                                               max(abs(.80-pi_coverage),
+                                                   na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(100*pi_coverage,
+                                                           digits=1,
+                                                           format="f"),
+                                                   "}"),
+                                            formatC(100*pi_coverage,
+                                                    digits=1,
+                                                    format="f"))) %>%
+    ungroup() %>%
+    select(-year)
+
+print(xtable(annual_table,
+             caption="Annual results for each model across all regions. Numbers in bold highlight which model performed best for each metric in each year.",
+             label = "sup:annual",
+             digits = c(0,0,0,0,0,2,2,1,1),
+             align = "llcb{1.55cm}b{1.2cm}rb{1cm}b{1.35cm}b{1.3cm}"),
+      include.rownames = FALSE,
+      table.placement="H",
+      sanitize.text.function=identity)
+
+## MOPH MAEs
+moph_table <- reference_dat %>%
+    left_join(thai_prov_data, by = c("pid" = "FIPS")) %>%
+    group_by(MOPH_Admin_Code, num_cov) %>%
+    summarise(N = n(),
+              mean_obs_rate = mean(obs_rate, na.rm = TRUE),
+              num_outbreaks = sum(outbreak_observed, na.rm=TRUE),
+              mae_pred = mean(ae_pred, na.rm = TRUE),
+              mae_baseline = mean(ae_baseline),
+              rel_mae = mae_pred / mae_baseline,
+              win_pct = mean(win, na.rm = TRUE)) %>%
+    bind_rows(moph_mae) %>%
+    left_join(
+        pi_dat %>%
+            group_by(num_cov, MOPH_Admin_Code) %>%
+            summarise(pi_coverage = mean(pi_coverage_80))
+    ) %>%
+    group_by(MOPH_Admin_Code) %>%
+    mutate(order_factor=min(rel_mae)) %>%
+    ungroup() %>%
+    arrange(order_factor, desc(num_cov)) %>%
+    group_by(MOPH_Admin_Code) %>%
+    transmute(Model = ifelse(num_cov==max(final_table$num_cov),
+                             "\\hline WIP",
+                             ifelse(num_cov==0,
+                                    "Baseline",
+                                    "Incidence-only")),
+              `MOPH Region` = ifelse(Model=="Incidence-only",
+                              as.character(MOPH_Admin_Code),
+                              ""),
+              Provinces = ifelse(Model=="Incidence-only",
+                                             N/5,
+                                             ""),
+              `Mean provincial incidence` = ifelse(Model=="Incidence-only",
+                                                   round(mean_obs_rate),
+                                                   ""),
+              Outbreaks = ifelse(Model=="Incidence-only",
+                                           max(num_outbreaks, na.rm=T),
+                                           ""),
+              MAE = ifelse(mae_pred==min(mae_pred, na.rm=T),
+                           paste0("\\textbf{",
+                                  formatC(mae_pred,digits=2, format="f"),
+                                  "}"),
+                           formatC(mae_pred,digits=2, format="f")),
+              `rMAE` = ifelse(rel_mae==min(rel_mae, na.rm=T),
+                                      paste0("\\textbf{",
+                                             formatC(rel_mae, digits=2, format="f"),
+                                             "}"),
+                                      formatC(rel_mae,digits=2, format="f")),
+              `\\% of forecasts better than baseline` = ifelse(win_pct!=min(win_pct, na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(100*win_pct,digits=1, format="f"),
+                                                   "}"),
+                                            formatC(100*win_pct,digits=1, format="f")),
+              `80\\% PI coverage` = ifelse(abs(.80-pi_coverage)!=max(abs(.80-pi_coverage), na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(100*pi_coverage,digits=1, format="f"),
+                                                   "}"),
+                                            formatC(100*pi_coverage,digits=1, format="f"))) %>%
+    ungroup() %>%
+    select(-MOPH_Admin_Code)
+
+print(xtable(moph_table,
+             caption="Regional results for each model across all years in the prospective prediction phase. Numbers in bold highlight which model performed best for each metric in each region. The regions are sorted by best model performance using relative mean absolute error (rMAE) from lowest to highest.",
+             label = "sup:moph",
+             digits = c(0,0,0,0,0,0,2,2,1,1),
+             align = "llb{1.1cm}b{1.1cm}b{1.55cm}b{1.2cm}rb{1cm}b{1.35cm}b{1.3cm}"),
+      include.rownames = FALSE,
+      table.placement="H",
+      sanitize.text.function=identity)
+@
+
+<<supplemental sheets, include=FALSE>>=
+##### make annual sheets like those for distribution to Thai MOPH
+#####
+best_moph_mae <- moph_mae %>%
+    group_by(MOPH_Admin_Code) %>%
+    filter(rel_mae==min(rel_mae))
+
+best_test_covs <- best_preds$model_covs[1]
+
+for(delivery_year in FIRST_TEST_YEAR:LAST_YEAR){
+    ## if the file already exists, skip to next year
+    if(!find_recent_file(
+        name_start=paste0("ST",
+                          (delivery_year-FIRST_TEST_YEAR+5),
+                          "-annual-prediction-deliverable-",
+                          delivery_year),
+        path="manuscript/") %>% is.na() &
+       !OVERWRITE)
+        next
+
+    province_sd_dat <- dengue_dat %>%
+        transmute(pid,
+                  sim=year,
+                  sim_rate=100000*obs/population) %>%
+        full_join(select(dengue_dat, pid, year, population)) %>%
+        filter(year==delivery_year,
+               sim<year,
+               sim>=year-10) %>%
+        group_by(pid, year, population) %>%
+        summarise(pid_median=median(sim_rate),
+                  pid_sd = sd(sim_rate),
+                  pid_1sd = pid_median+pid_sd,
+                  pid_2sd = pid_median+2*pid_sd)
+
+    new_pi_dat <- best_preds %>%
+            filter(year==delivery_year) %>%
+            left_join(province_sd_dat) %>%
+            mutate(obs_rate=100000*obs_counts/population,
+                   pred_rate=100000*pred_counts/population) %>%
+            group_by(pid, year, obs_rate, pid_median) %>%
+            summarise(pred_10=quantile(pred_counts, probs=.1),
+                      pred_90=quantile(pred_counts, probs=.9),
+                      pred_count_median=quantile(pred_counts, probs=.5),
+                      prob_gt_1sd=mean(pred_rate>pid_1sd),
+                      prob_gt_2sd=mean(pred_rate>pid_2sd)) %>%
+            ungroup()
+
+    annual_deliverable <- dengue_dat %>%
+        left_join(select(thai_prov_data, -Population),
+                  by=c("pid"="FIPS")) %>%
+        left_join(new_pi_dat) %>%
+        filter(year>=delivery_year-1,
+               year<=delivery_year) %>%
+        group_by(pid) %>%
+        mutate(last_year_obs=obs[which.min(year)]) %>%
+        filter(year==delivery_year) %>%
+        ungroup() %>%
+        transmute(pid,
+                  Province,
+                  `MOPH Admin Code`=MOPH_Admin_Code,
+                  `Last Year Cases`=ceiling(last_year_obs),
+                  `10-year Median`=ceiling(population*pid_median/100000),
+                  `Predicted Cases`=ceiling(pred_count_median),
+                  `Predicted:Median Ratio`=round(pred_count_median/(population*pid_median/100000),2),
+                  `Lower Bound`=ceiling(pred_10),
+                  `Upper Bound`=ceiling(pred_90),
+                  `Predicted Incidence Rate`=round(100000*pred_count_median/population),
+                  `Probability Above 1SD`=round(prob_gt_1sd,2),
+                  `Probability Above 2SD`=round(prob_gt_2sd,2)) %>%
+        arrange(pid)
+
+    if(delivery_year==FIRST_TEST_YEAR){
+        annual_deliverable$`Last Year Cases` <-
+            ceiling(dengue_dat$obs[dengue_dat$year==(FIRST_TEST_YEAR-1)])
+    }
+
+    write.csv(annual_deliverable,
+              paste0("manuscript/ST",
+                     (delivery_year-FIRST_TEST_YEAR+5),
+                     "-annual-prediction-deliverable-",
+                     delivery_year,"-",Sys.Date(),
+                     ".csv"))
+}
+@
+
+\end{document}

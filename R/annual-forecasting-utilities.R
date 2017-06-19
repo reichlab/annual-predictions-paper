@@ -172,48 +172,52 @@ predict_single_season  <- function(x,
         }}
     noaa_test <- filter(noaa_test, pid %in% noaa_train$pid)
 
-    ## fit model on noaa training data
-    train_noaa_fit <- tryCatch(gam(formula(noaa_eqn),
-                                   data = noaa_train,
-                                   family = nb()),
-                               error=function(e) e)
+    if(nrow(noaa_test)>0){
+        ## fit model on noaa training data
+        train_noaa_fit <- tryCatch(gam(formula(noaa_eqn),
+                                       data = noaa_train,
+                                       family = nb()),
+                                   error=function(e) e)
 
-    ## if the fit is an error, then fill the column with NAs, otherwise make predictions
-    if(inherits(train_noaa_fit, "error")){
-        noaa_preds <- matrix(NA, nrow = nrow(noaa_test), ncol = 1)
-    } else{
-        ## if using a distribution, draw from coefficient permutations and negative binomial
+        ## if the fit is an error, then fill the column with NAs, otherwise make predictions
+        if(inherits(train_noaa_fit, "error")){
+            noaa_preds <- matrix(NA, nrow = nrow(noaa_test), ncol = 1)
+        } else{
+            ## if using a distribution, draw from coefficient permutations and negative binomial
+            if(distribution){
+                noaa_preds <- pred_dist(train_fit=train_noaa_fit,
+                                        test_dat=noaa_test,
+                                        coef_perms=coef_perms,
+                                        nb_draws=nb_draws)
+            } else
+                noaa_preds <- predict(train_noaa_fit, noaa_test, type = "response")
+        }
+        ## store data
         if(distribution){
-            noaa_preds <- pred_dist(train_fit=train_noaa_fit,
-                                    test_dat=noaa_test,
-                                    coef_perms=coef_perms,
-                                    nb_draws=nb_draws)
-        } else
-            noaa_preds <- predict(train_noaa_fit, noaa_test, type = "response")
-    }
-    ## store data
-    if(distribution){
-        prediction_dat <- data_frame(year = noaa_test$year,
-                                   pid = noaa_test$pid,
-                                   formula = noaa_eqn,
-                                   group = 3,
-                                   model_covs = paste(vars, collapse=","),
-                                   num_cov = length(vars),
-                                   obs_counts = noaa_test$obs) %>%
-            bind_cols(noaa_preds) %>%
-            gather("sim", "pred_counts", starts_with("V")) %>%
-            filter(!is.na(pred_counts))
+            prediction_dat <- data_frame(year = noaa_test$year,
+                                         pid = noaa_test$pid,
+                                         formula = noaa_eqn,
+                                         group = 3,
+                                         model_covs = paste(vars, collapse=","),
+                                         num_cov = length(vars),
+                                         obs_counts = noaa_test$obs) %>%
+                bind_cols(noaa_preds) %>%
+                gather("sim", "pred_counts", starts_with("V")) %>%
+                filter(!is.na(pred_counts))
+        } else{
+            prediction_dat <- data_frame(year = noaa_test$year,
+                                         pid = noaa_test$pid,
+                                         formula = noaa_eqn,
+                                         group = 3,
+                                         knots = sum(knots),
+                                         model_covs = paste(vars, collapse=","),
+                                         sets = sum(sets),
+                                         num_cov = length(vars),
+                                         obs_counts = noaa_test$obs,
+                                         pred_counts = noaa_preds)
+        }
     } else{
-        prediction_dat <- data_frame(year = noaa_test$year,
-                                   pid = noaa_test$pid,
-                                   formula = noaa_eqn,
-                                   group = 3,
-                                   knots = sum(knots),
-                                   model_covs = paste(vars, collapse=","),
-                                   sets = sum(sets),
-                                   num_cov = length(vars),
-                                   obs_counts = noaa_test$obs,
-                                   pred_counts = test_noaa_fit)
+        prediction_dat <- c()
     }
 
     ## remove the noaa provinces from the ncdc test set (still used for training)
@@ -272,7 +276,7 @@ predict_single_season  <- function(x,
                                    sets = sum(sets),
                                    num_cov = length(vars),
                                    obs_counts = ncdc_test$obs,
-                                   pred_counts = test_ncdc_fit)
+                                   pred_counts = ncdc_preds)
         }
         prediction_dat <- bind_rows(prediction_dat, ncdc_dat)
     }
@@ -329,7 +333,7 @@ predict_single_season  <- function(x,
                                    sets = sum(sets),
                                    num_cov = length(vars),
                                    obs_counts = esrl_test$obs,
-                                   pred_counts = test_esrl_fit)
+                                   pred_counts = esrl_preds)
         }
         prediction_dat <- bind_rows(prediction_dat, esrl_dat)
     }
