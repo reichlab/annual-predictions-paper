@@ -1,7 +1,7 @@
 library(dplyr)
 # devtools::install_github("krlmlr/here")
 library(doMC)
-registerDoMC(20)
+registerDoMC()
 
 set.seed(1)
 VERBOSE <- TRUE
