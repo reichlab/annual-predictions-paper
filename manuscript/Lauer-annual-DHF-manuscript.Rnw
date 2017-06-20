@@ -415,7 +415,6 @@ Specifically, we use a generalized additive model with a negative binomial famil
 
 \begin{align}
     Y_{i,t} &\sim \text{NB}(n_{i,t}\lambda_{i,t}, r), \label{eqn:NB} \\
-    % \log \Big [ \mathbf{E}(Y_{i,t}) \Big ] = \log \Big [ \mathbf{E}(n_{i,t}\lambda_{i,t}) \Big ] &= \log(n_{i,t}) + \alpha_i + \sum_{j=1}^J g_j(x_{j,i,t}|\boldsymbol{\theta}), \label{eqn:regression} \\
     \log \Big [ \mathbf{E}(Y_{i,t}) \Big ] &= \beta_0 + \log(n_{i,t}) + \alpha_i + \sum_{j=1}^J g_j(x_{j,i,t}|\boldsymbol{\theta}), \label{eqn:regression} \\
     \alpha_i &\sim \text{Normal}(\mu, \sigma^2). \label{eqn:RE}
 \end{align}

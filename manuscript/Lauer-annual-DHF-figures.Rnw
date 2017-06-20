@@ -246,6 +246,7 @@ for(i in 1:nrow(test_dat)){
                          incidence=INCIDENCE)
 }
 
+## summarize the final predictions by province, year, and model
 final_preds_sum <- test_preds %>%
     left_join(test_dat %>% select(year, pid, population, baseline)) %>%
     mutate(obs_rate=100000*obs_counts/population,
