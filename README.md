@@ -2,7 +2,7 @@
 In order to re-run this experiment, please follow these steps:
 1) download this repository by pressing the green button in the upper right-hand corner
 2) unzip the downloaded folder
-3) replace `path/to/package` in line 9 of the shell script `inst/annual-forecasts-workflow.sh` with the path to the unzipped folder and save the file
+3) replace `path/to/package` in line 9 of the shell script `inst/annual-forecasts-workflow.sh` with the absolute path to the unzipped folder and save the file
 4) run the shell script (on a Mac in the Terminal write: `sh path/to/package/annual-predictions-paper-master/inst/annual-forecasts-workflow.sh`; the author does not know the PC equivalent of this command)
 
 This shell script:
