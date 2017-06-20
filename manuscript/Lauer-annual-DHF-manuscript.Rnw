@@ -48,13 +48,13 @@ opts_knit$set(root.dir = here::here())
 @
 
 <<setup, include=FALSE>>=
-thai_prov_data <- read.csv("data/thai-prov-data.csv")
+thai_prov_data <- read.csv("../data/thai-prov-data.csv")
 
-source("R/annual-forecasting-utilities.R")
+source("../R/annual-forecasting-utilities.R")
 
 ## annual statistics
 latest_annual_counts <- find_recent_file("annual-thai-counts",
-                                         "data/")
+                                         "../data/")
 annual_thai_counts <- read.csv(latest_annual_counts) %>%
     filter(date_sick_year<=2014)
 mean_thai_dhf <- round(mean(annual_thai_counts$count))
@@ -62,30 +62,30 @@ min_thai_dhf <- round(min(annual_thai_counts$count))
 max_thai_dhf <- round(max(annual_thai_counts$count))
 
 ## monthly statistics
-latest_monthly <- find_recent_file("monthly-counts", "data/")
+latest_monthly <- find_recent_file("monthly-counts", "../data/")
 monthly_counts <- read.csv(latest_monthly)[,-1] %>%
     filter(date_sick_year<2015)
 
 ## read in covariate table
 latest_cov_table <- find_recent_file("covariate-table",
-                                     "data/")
+                                     "../data/")
 table_dat <- read.csv(latest_cov_table)
 
 ## read in the cv_train data to find the number of models used in cross validation
 most_recent_cv <- find_recent_file(name_start = "cv-train",
-                                   path="data/")
+                                   path="../data/")
 cv_train <- readRDS(most_recent_cv)
 cv_models <- length(unique(cv_train$model_covs))
 
 ## read in summary of CV data
-latest_cv_sum <- find_recent_file("cv-summary-table", "data/")
+latest_cv_sum <- find_recent_file("cv-summary-table", "../data/")
 cv_mae <- read.csv(latest_cv_sum)
 best_cv_num_cov <- cv_mae$num_cov[1]
 final_covs <- cv_mae$model_covs[1]
 
 ## read in prediction summary
 latest_pred_summary_table <- find_recent_file("pred-summary-table",
-                                              "data/")
+                                              "../data/")
 final_preds_sum <- read.csv(latest_pred_summary_table)[,-1]
 fitted_vs_simple <- final_preds_sum %>%
     select(year, pid, num_cov, ae_pred) %>%
@@ -156,7 +156,7 @@ baseline_best_regions <- length(which(moph_best_regions$fitted>1 &
 
 ## Outbreak statistics
 latest_pi_summary <- find_recent_file("prediction-interval-summary",
-                                      "data/")
+                                      "../data/")
 pi_dat <- read.csv(latest_pi_summary)[,-1]
 fitted_pi_80 <- mean(pi_dat$pi_coverage_80[which(pi_dat$num_cov==
                                                    max(pi_dat$num_cov))])

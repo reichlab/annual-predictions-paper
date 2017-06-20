@@ -10,15 +10,12 @@ library(mgcv)
 library(mapproj)
 library(scales)
 library(grid)
-set.seed(1)
-
-opts_knit$set(root.dir = here::here())
 @
 
 <<setup, include=FALSE>>=
-thai_prov_data <- read.csv("data/thai-prov-data.csv")
+thai_prov_data <- read.csv("../data/thai-prov-data.csv")
 
-source("R/annual-forecasting-utilities.R")
+source("../R/annual-forecasting-utilities.R")
 
 ## color blind color palette
 cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442",
@@ -77,7 +74,7 @@ EvaluateSmooths = function(model, select=NULL, x=NULL, n=100) {
 
 ## read in latest data for prediction
 most_recent_dat <- find_recent_file(name_start = "annual-pred-data",
-                                    path="data/")
+                                    path="../data/")
 
 dengue_dat <- read.csv(most_recent_dat)[,-1] %>%
     filter(year>=FIRST_YEAR,
@@ -87,13 +84,13 @@ dengue_dat <- read.csv(most_recent_dat)[,-1] %>%
 cv_dat <- filter(dengue_dat, year<FIRST_TEST_YEAR)
 
 ## map data
-world <- readShapeSpatial("data/map-data/ne_10m_admin_1_states_provinces.shp")
+world <- readShapeSpatial("../data/map-data/ne_10m_admin_1_states_provinces.shp")
 thai_map <- world[world$adm0_a3=="THA",]
 thai_map <- thai_map[!is.na(thai_map$woe_name),]
 
 ## if we have run simulations in the past, find and load them
 most_recent_cv <- find_recent_file(name_start = "cv-train",
-                                   path="data/")
+                                   path="../data/")
 cv_train <- readRDS(most_recent_cv)
 
 ### create a table of all the best single covariate full country models
@@ -155,7 +152,7 @@ table_dat$prop_name <- c("mean February humidity",
                          "total low-season rainfall (NOAA)")
 
 if(SAVE_FILES)
-    write.csv(table_dat, paste0("data/covariate-table-",
+    write.csv(table_dat, paste0("../data/covariate-table-",
                                 Sys.Date(),".csv"))
 
 ## find best models given CV data
@@ -175,7 +172,7 @@ cv_mae <- cv_train %>%
     arrange(mae, num_cov)
 
 if(SAVE_FILES)
-    write.csv(cv_mae, paste0("data/cv-summary-table-",
+    write.csv(cv_mae, paste0("../data/cv-summary-table-",
                              Sys.Date(),".csv"))
 
 best_cv_formula <- as.character(cv_mae$formula[1])
@@ -209,7 +206,7 @@ best_models$model <- c("Fitted",
 
 ## prospective phase predictions
 most_recent_test <- find_recent_file(name_start = "test-preds",
-                                    path="data/")
+                                    path="../data/")
 test_preds <- readRDS(most_recent_test)
 
 ## baseline predictor using median provincial rates over past 10 seasons
@@ -261,7 +258,7 @@ final_preds_sum <- test_preds %>%
 
 if(SAVE_FILES)
     write.csv(final_preds_sum,
-              paste0("data/pred-summary-table-",
+              paste0("../data/pred-summary-table-",
                      Sys.Date(),".csv"))
 
 final_table <- test_preds %>%
@@ -317,7 +314,7 @@ pi_dat <- test_preds %>%
 
 if(SAVE_FILES)
     write.csv(pi_dat,
-              paste0("data/prediction-interval-summary-",
+              paste0("../data/prediction-interval-summary-",
                      Sys.Date(),".csv"))
 
 pi_simple <- filter(pi_dat, num_cov==1)
@@ -325,7 +322,7 @@ outbreak_roc <- pROC::roc(pi_simple$outbreak_observed,
                           pi_simple$outbreak_probability,
                           ci=T)
 
-latest_monthly <- find_recent_file("monthly-counts", "data/")
+latest_monthly <- find_recent_file("monthly-counts", "../data/")
 monthly_counts <- read.csv(latest_monthly)[,-1]
 
 annual_thai_counts <- monthly_counts %>%
@@ -333,7 +330,7 @@ annual_thai_counts <- monthly_counts %>%
     summarise(count=sum(count))
 
     write.csv(annual_thai_counts,
-              paste0("data/annual-thai-counts-",Sys.Date(),".csv"))
+              paste0("../data/annual-thai-counts-",Sys.Date(),".csv"))
 @
 
 <<incidence-map, echo=FALSE, warning=FALSE, fig.lp='fig:', fig.cap="\\textbf{The temporal and spatial distribution of dengue hemorrhagic fever incidence rate in Thailand.} \\textbf{(a)} The dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, for each Thai province and season used in this study. \\textbf{(b)} The median DHF incidence rate, per 100,000 population, for each province from 2000-2014. \\textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the incidence rate for each province.", message=FALSE>>=
