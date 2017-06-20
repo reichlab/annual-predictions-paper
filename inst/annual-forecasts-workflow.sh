@@ -6,7 +6,7 @@ REXE=Rscript
 fi
 echo $REXE
 ## set directory to the project
-cd path/to/package/annual-predictions-paper-master
+cd path/to/package/annual-predictions-paper
 ## create the project and load in the packages required to run forecasts (this step may take 10+ minutes, especially to install stringi)
 $REXE -e "install.packages('packrat/src/packrat/packrat_0.4.8-1.tar.gz', repos=NULL, type='source');packrat::init()"
 ## put together forecasting data from raw data
