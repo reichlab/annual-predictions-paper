@@ -52,6 +52,7 @@ pred_dist <- function(train_fit,
                       test_dat,
                       coef_perms,
                       nb_draws){
+    require(mgcv)
     if(missing(nb_draws))
         nb_draws <- coef_perms
     ## get the mean and covariance matrix for predictions on the testing data

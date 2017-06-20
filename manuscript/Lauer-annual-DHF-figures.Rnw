@@ -6,20 +6,17 @@
 library(dplyr)
 library(ggplot2)
 library(maptools)
-library(xtable)
 library(mgcv)
 library(mapproj)
-library(dengueThailand)
 library(scales)
 library(grid)
-# devtools::install_github("krlmlr/here")
 set.seed(1)
 
 opts_knit$set(root.dir = here::here())
 @
 
 <<setup, include=FALSE>>=
-data("thai_prov_data")
+thai_prov_data <- read.csv("data/thai-prov-data.csv")
 
 source("R/annual-forecasting-utilities.R")
 

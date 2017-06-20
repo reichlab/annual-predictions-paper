@@ -29,7 +29,6 @@ library(maptools)
 library(xtable)
 library(mgcv)
 library(mapproj)
-library(dengueThailand)
 library(scales)
 library(grid)
 library(tidyr)
@@ -42,7 +41,7 @@ opts_knit$set(root.dir = here::here())
 @
 
 <<setup, include=FALSE>>=
-data("thai_prov_data")
+thai_prov_data <- read.csv("data/thai-prov-data.csv")
 
 FIRST_YEAR <- 2000
 LAST_TEST_YEAR <- 2014

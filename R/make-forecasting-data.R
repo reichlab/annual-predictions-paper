@@ -1,16 +1,15 @@
 ## Prepare a data frame to make annual predictions from
 ## Stephen Lauer, March 2017
 
-library(dengueThailand)
 library(dplyr)
-# devtools::install_github("krlmlr/here")
+setwd(here::here())
 
-data("thai_prov_data")
+thai_prov_data <- read.csv("data/thai-prov-data.csv")
 ## adjust thai_prov_data for Bueng Kan as part of Nong Khai
 thai_prov_data[thai_prov_data$ISO==43,"Area_km"] <-
     thai_prov_data[thai_prov_data$ISO==43,"Area_km"] +
     thai_prov_data[thai_prov_data$ISO==38,"Area_km"]
-data("thai_census_interpolated")
+thai_census_interpolated <- read.csv("data/thai-census.csv")
 
 FIRST_YEAR <- 2000
 LAST_YEAR <- 2014

@@ -42,14 +42,13 @@
 library(knitr)
 library(dplyr)
 library(tidyr)
-library(dengueThailand)
 # devtools::install_github("krlmlr/here")
 
 opts_knit$set(root.dir = here::here())
 @
 
 <<setup, include=FALSE>>=
-data("thai_prov_data")
+thai_prov_data <- read.csv("data/thai-prov-data.csv")
 
 source("R/annual-forecasting-utilities.R")
 

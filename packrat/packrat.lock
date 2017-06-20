@@ -44,12 +44,6 @@ Source: CRAN
 Version: 1.1-2
 Hash: c0d56cd15034f395874c870141870c25
 
-Package: RPostgreSQL
-Source: CRAN
-Version: 0.4-1
-Hash: 42460e37a21dc9e3f1f47c7d8d210592
-Requires: DBI
-
 Package: Rcpp
 Source: CRAN
 Version: 0.12.10
@@ -95,20 +89,6 @@ Package: curl
 Source: CRAN
 Version: 2.6
 Hash: 8162b82ca4809c0d63c30aedbd7348e0
-
-Package: dengueThailand
-Source: source
-Version: 1.0
-Hash: 2635fd3baf21c40d9d5f8bb95a1f29e2
-SourcePath:
-    ~/Documents/denguemodeling/spamd/trunk/packages/dengueThailand
-
-Package: devtools
-Source: CRAN
-Version: 1.13.2
-Hash: 1bcfefa7d2fad3f1a2f5367c9ceccd46
-Requires: digest, git2r, httr, jsonlite, memoise, rstudioapi, whisker,
-    withr
 
 Package: dichromat
 Source: CRAN
@@ -165,11 +145,6 @@ Source: CRAN
 Version: 0.6.5
 Hash: 19f9e878cf682d07e50071e50738c14c
 Requires: Rcpp, ggplot2, scales
-
-Package: git2r
-Source: CRAN
-Version: 0.18.0
-Hash: 9dfaafbcca68be29b89ef7783dc1dac0
 
 Package: gridExtra
 Source: CRAN
@@ -240,12 +215,6 @@ Source: CRAN
 Version: 0.2.0
 Hash: 3d6e7608e65bbf5cb170dab1e3c9ed8b
 
-Package: lubridate
-Source: CRAN
-Version: 1.6.0
-Hash: b90f4cbefe0b3c545dd68b22c66a8a12
-Requires: stringr
-
 Package: magrittr
 Source: CRAN
 Version: 1.5
@@ -273,12 +242,6 @@ Source: CRAN
 Version: 0.7.7
 Hash: fea2343a1119d61b0cc5c0a950d103a3
 Requires: mime
-
-Package: memoise
-Source: CRAN
-Version: 1.1.0
-Hash: 410fcd334bc626db100237cc1370f2e9
-Requires: digest
 
 Package: mgcv
 Source: CRAN
@@ -350,11 +313,6 @@ Version: 1.2
 Hash: fdcac51a7f47decd60556ceefc3c26b1
 Requires: backports
 
-Package: rstudioapi
-Source: CRAN
-Version: 0.6
-Hash: fd256f8bfb9a64cc35f98b0decb1a79f
-
 Package: scales
 Source: CRAN
 Version: 0.4.1
@@ -389,16 +347,6 @@ Source: CRAN
 Version: 0.6.1
 Hash: 18d0eb5251ee17447cb84df1a7f010b2
 Requires: Rcpp, dplyr, lazyeval, magrittr, stringi, tibble
-
-Package: whisker
-Source: CRAN
-Version: 0.3-2
-Hash: 803d662762e532705c2c066a82d066e7
-
-Package: withr
-Source: CRAN
-Version: 1.0.2
-Hash: 774eb7be9087cdc24b53b74e5359cfac
 
 Package: xtable
 Source: CRAN
