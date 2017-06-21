@@ -511,7 +511,7 @@ plot_pi <- pi_dat %>%
            pid_rank=min_rank(pred_rate_median))
 
 ggplot(data=plot_pi, aes(x=pid_rank)) +
-    geom_segment(aes(xend=pid_rank, y=pred_10, yend=pred_90), color="gray85") +
+    geom_segment(aes(xend=pid_rank, y=pred_10, yend=pred_90), color="gray75") +
     geom_point(aes(y=pred_rate_median, shape="Incidence-only model forecasts",
                    fill="Incidence-only model forecasts",
                    color="Incidence-only model forecasts"), alpha=0.8) +

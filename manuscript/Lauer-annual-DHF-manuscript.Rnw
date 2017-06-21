@@ -458,7 +458,7 @@ This metric can be interpreted as the percentage of error observed in the foreca
 \subsection*{Data and code availability}
 
 All data processing and analysis was performed in R version 3.3.1 (2017-03-16) \cite{R2017}.
-The code and data for this analysis is publicly available at \url{https://doi.org/10.5281/zenodo.546123}.
+The code and data for this analysis is publicly available at \url{https://doi.org/10.5281/zenodo.814298}.
 
 \bibliography{Lauer-annual-DHF-citations}{}
 \bibliographystyle{unsrt}
