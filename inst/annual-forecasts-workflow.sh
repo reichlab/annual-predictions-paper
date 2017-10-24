@@ -12,7 +12,7 @@ $REXE -e "install.packages('packrat/src/packrat/packrat_0.4.8-1.tar.gz', repos=N
 ## put together forecasting data from raw data
 $REXE R/make-forecasting-data.R > data/make-forecasting-data-output.Rout
 ## conduct cross validation, model selection, and test phase forecasts
-$REXE R/make-forecasts.R > data/make-forecasts.Rout
+$REXE R/make-forecasts.R > data/make-forecasts-output.Rout
 ## set workspace to manuscript folder
 cd manuscript
 ## make the figures for the manuscript

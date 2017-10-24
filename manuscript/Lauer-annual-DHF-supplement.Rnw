@@ -34,10 +34,12 @@ library(grid)
 library(tidyr)
 library(ggrepel)
 library(MapColoring)
+
+opts_knit$set(root.dir = here::here())
 @
 
 <<setup, include=FALSE>>=
-thai_prov_data <- read.csv("../data/thai-prov-data.csv")
+thai_prov_data <- read.csv("data/thai-prov-data.csv")
 
 FIRST_YEAR <- 2000
 LAST_TEST_YEAR <- 2014
@@ -49,13 +51,13 @@ OVERWRITE <- FALSE
 
 cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
-source("../R/annual-forecasting-utilities.R")
+source("R/annual-forecasting-utilities.R")
 ##### All of data required to make these visuals
 #####
 
 ## read in latest data for prediction
 most_recent_dat <- find_recent_file(name_start = "annual-pred-data",
-                                    path="../data/")
+                                    path="data/")
 
 dengue_dat <- read.csv(most_recent_dat)[,-1]
 
@@ -63,7 +65,7 @@ dengue_dat <- read.csv(most_recent_dat)[,-1]
 cv_dat <- filter(dengue_dat, year<FIRST_TEST_YEAR)
 
 ## map data
-world <- readShapeSpatial("../data/map-data/ne_10m_admin_1_states_provinces.shp")
+world <- readShapeSpatial("data/map-data/ne_10m_admin_1_states_provinces.shp")
 thai_map <- world[world$adm0_a3=="THA",]
 thai_map <- thai_map[!is.na(thai_map$woe_name),]
 thai_map@data <- thai_map@data %>%
@@ -72,7 +74,7 @@ thai_map@data <- thai_map@data %>%
 
 ## if we have run simulations in the past, find and load them
 most_recent_cv <- find_recent_file(name_start = "cv-train",
-                                   path="../data/")
+                                   path="data/")
 cv_train <- readRDS(most_recent_cv)
 
 ### create a table of all the best single covariate full country models
@@ -178,7 +180,7 @@ best_models$model <- c("WIP",
 
 ## testing phase predictions
 most_recent_test <- find_recent_file(name_start = "test-preds",
-                                     path="../data/")
+                                     path="data/")
 test_preds <- readRDS(most_recent_test)
 
 test_preds <- test_preds %>%
@@ -757,7 +759,7 @@ for(delivery_year in FIRST_TEST_YEAR:LAST_YEAR){
                           (delivery_year-FIRST_TEST_YEAR+5),
                           "-annual-prediction-deliverable-",
                           delivery_year),
-        path="../manuscript/") %>% is.na() &
+        path="manuscript/") %>% is.na() &
        !OVERWRITE)
         next
 
@@ -818,7 +820,7 @@ for(delivery_year in FIRST_TEST_YEAR:LAST_YEAR){
     }
 
     write.csv(annual_deliverable,
-              paste0("../manuscript/ST",
+              paste0("manuscript/ST",
                      (delivery_year-FIRST_TEST_YEAR+5),
                      "-annual-prediction-deliverable-",
                      delivery_year,"-",Sys.Date(),

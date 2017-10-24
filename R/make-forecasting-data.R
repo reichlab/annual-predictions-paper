@@ -2,6 +2,7 @@
 ## Stephen Lauer, March 2017
 
 library(dplyr)
+# devtools::install_github("krlmlr/here")
 setwd(here::here())
 
 thai_prov_data <- read.csv("data/thai-prov-data.csv")
