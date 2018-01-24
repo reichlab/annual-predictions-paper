@@ -83,57 +83,8 @@ cv_train <- readRDS(most_recent_cv)
 var_set <- data_frame(var = names(dengue_dat),
                       set = c(rep(1, 17), rep(2, 10), rep(3, 11)))
 
-table_dat <- cv_train %>%
-    filter(num_cov==1) %>%
-    group_by(model_covs, year, knots) %>%
-    summarise(year_mae = mean(abs(log(obs_counts)-log(pred_counts)))) %>%
-    group_by(model_covs, knots) %>%
-    summarise(cv_mae = mean(year_mae),
-              cv_se = sd(year_mae)) %>%
-    group_by(model_covs) %>%
-    filter(knots <= knots[which.min(cv_mae)],
-           cv_mae <= cv_mae[which.min(cv_mae)]+cv_se[which.min(cv_mae)]) %>%
-    filter(knots == min(knots)) %>%
-    left_join(var_set, by = c("model_covs" = "var")) %>%
-    arrange(model_covs) %>%
-    rename(best_k=knots)
-
-## fill in full variable names
-table_dat$prop_name <- c("mean February humidity",
-                         "total February rainfall (ESRL)",
-                         "maximum February rainfall (NOAA)",
-                         "total February rainfall (NOAA)",
-                         "mean February temperature (ESRL)",
-                         "mean February temperature (NCDC)",
-                         "mean February temperature (NOAA)",
-                         "mean January humidity",
-                         "total January rainfall (ESRL)",
-                         "maximum January rainfall (NOAA)",
-                         "total January rainfall (NOAA)",
-                         "mean January temperature (ESRL)",
-                         "mean January temperature (NCDC)",
-                         "mean January temperature (NOAA)",
-                         "last high-season incidence rate",
-                         "last post-season incidence rate",
-                         "mean March humidity",
-                         "total March rainfall (ESRL)",
-                         "maximum March rainfall (NOAA)",
-                         "total March rainfall (NOAA)",
-                         "mean March temperature (ESRL)",
-                         "mean March temperature (NCDC)",
-                         "mean March temperature (NOAA)",
-                         "maximum low-season humidity",
-                         "maximum low-season rainfall (NOAA)",
-                         "maximum low-season temperature (NCDC)",
-                         "mean low-season temperature (ESRL)",
-                         "minimum low-season humidity",
-                         "minimum low-season temperature (NCDC)",
-                         "provincial population",
-                         "population per square kilometer",
-                         "pre-season incidence rate",
-                         "estimated relative susceptibility rate",
-                         "total low-season rainfall (ESRL)",
-                         "total low-season rainfall (NOAA)")
+table_dat <- find_recent_file("covariate-table", "data/") %>%
+    read.csv()
 
 ## find best models given CV data
 cv_mae <- cv_train %>%
@@ -149,6 +100,10 @@ cv_mae <- cv_train %>%
     filter(mae == min(mae)) %>%
     ungroup() %>%
     arrange(mae, num_cov)
+
+cv_mae$aic <- NA
+for(i in 1:nrow(cv_mae))
+    cv_mae$aic[i] <- gam(formula(cv_mae$formula[i]), data=cv_dat, family=nb()) %>% AIC()
 
 best_cv_formula <- as.character(cv_mae$formula[1])
 
@@ -172,6 +127,8 @@ cv_median_mae <- cv_dat %>%
               model_covs = "",
               num_cov = 0,
               cv_mae = mean(abs(log(obs) - log(median_rate))))
+
+best_cv_formula <- as.character(cv_median_mae$formula[1])
 
 best_models <- bind_rows(best_models, reduced_model, cv_median_mae)
 best_models$model <- c("WIP",
@@ -299,6 +256,14 @@ best_preds_sum <- final_preds_sum %>%
     filter(num_cov == final_model_covs)
 @
 
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{figure}
+\includegraphics[width=\maxwidth]{figure/annual-cases-graph-1} \caption{Aggregated time series of dengue hemorrhagic fever cases from 2000-2014.}\label{fig:annual-cases-graph}
+\end{figure}
+
+
+\end{knitrout}
+
 <<moph-region-map, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Map of the Thailand Ministry of Public Health administrative regions (MOPH regions). These 13 MOPH regions are geographically clustered sets of 4-8 provinces (with the exception of Bangkok which is its own region) co-operatively managed by a regional health office.", fig.lp="sup:", fig.pos='H'>>=
 ## create a map of MOPH regions with own polygons, so we can find centroids of each region
 ## code to make this was found on: https://gis.stackexchange.com/questions/63577/joining-polygons-in-r
@@ -343,93 +308,6 @@ ggplot(moph_map@data, aes(map_id=MOPH_Admin_Code)) +
           legend.position="none") +
     coord_map(projection="mercator") + ## to keep scaling right
     xlab("") + ylab("")
-@
-
-<<season-timing, echo=FALSE, tidy=TRUE, message=FALSE, eval=TRUE, fig.lp='sup:', fig.cap="\\textbf{Time frames over which covariates and prediction target are aggregated, with respect to calendar time and seasons.} In addition to the listed time frames, some covariates are aggregated over specific months, an entire year, or the low-season prior to the prediction target.">>=
-two_seasons <- data_frame(Timing=c("Annual", "Annual", "Season",
-                                   "Season", "Season", "Season", "Season",
-                                   "Covariate\naggregation\ntime frames",
-                                   "Covariate\naggregation\ntime frames",
-                                   "Covariate\naggregation\ntime frames",
-                                   "Covariate\naggregation\ntime frames"),
-                          Name=c("Prior year",
-                                 "Current year",
-                                 "Low",
-                                 "High",
-                                 "Low",
-                                 "High",
-                                 "Low",
-                                 "Annual counts\n(prediction target)",
-                                 "Post-\nseason",
-                                 "Pre-\nseason",
-                                 "Prior high-season"),
-                          Date_Start=as.Date(c("2000-01-01",#Last
-                                               "2001-01-01",#This
-                                               "2000-01-01",#Low
-                                               "2000-04-01",#High
-                                               "2000-11-01",#Low
-                                               "2001-04-01",#High
-                                               "2001-11-01",#Low
-                                               "2001-04-01",#Predict
-                                               "2000-11-01",#Post
-                                               "2001-01-01",#Pre
-                                               "2000-04-01")),#Last high
-                          Date_Mid=as.Date(c("2000-07-01",#Last
-                                             "2001-07-01",#This
-                                             "2000-02-14",#Low
-                                             "2000-07-16",#High
-                                             "2001-01-15",#Low
-                                             "2001-07-16",#High
-                                             "2001-12-01",#Low
-                                             "2001-08-16",#Predict
-                                             "2000-12-01",#Post
-                                             "2001-02-14",#Pre
-                                             "2000-07-16")),#Last high
-                          Date_End=as.Date(c("2000-12-31",#Last
-                                             "2001-12-31",#This
-                                             "2000-03-31",#Low
-                                             "2000-10-31",#High
-                                             "2001-03-31",#Low
-                                             "2001-10-31",#High
-                                             "2001-12-31",#Low
-                                             "2001-12-31",#Predict
-                                             "2000-12-31",#Post
-                                             "2001-03-31",#Pre
-                                             "2000-10-31")),#Last high
-                          place=c(rep(-1,7), -0.5, 1.25, -0.5, -1))
-
-ggplot(data=two_seasons, aes(y=Timing, x=Date_Mid)) +
-    geom_errorbarh(aes(xmin=Date_Start, xmax=Date_End), height=0.3) +
-    geom_text(aes(y=Timing, x=Date_Mid, label=Name, vjust=place)) +
-    scale_y_discrete("",
-                     limits=c("Covariate\naggregation\ntime frames",
-                              "Season",
-                              "Annual")) +
-    scale_x_date("",
-                 breaks=as.Date(c("2000-01-01",
-                                  "2000-04-01",
-                                  "2000-07-01",
-                                  "2000-11-01",
-                                  "2001-01-01",
-                                  "2001-04-01",
-                                  "2001-07-01",
-                                  "2001-11-01",
-                                  "2002-01-01")),
-                 labels = c("Prior January",
-                            "Prior April",
-                            "Prior July",
-                            "Prior November",
-                            "Current January",
-                            "Current April",
-                            "Current July",
-                            "Current November",
-                            "Next January")) +
-    theme_bw() +
-    theme_minimal() +
-    theme(axis.text.x=element_text(angle=45, hjust=1, vjust=1),
-          panel.grid=element_blank(),
-          axis.ticks=element_line(color="gray50"),
-          axis.line=element_line(color="gray50"))
 @
 
 \begin{table}[H]
@@ -479,7 +357,7 @@ ggplot(data=two_seasons, aes(y=Timing, x=Date_Mid)) +
     \label{sup:covs}
 \end{table}
 
-<<big-supplementary-table, echo=FALSE, results='asis', warning=FALSE, fig.pos="center", message=FALSE>>=
+<<overall-table, echo=FALSE, results='asis', warning=FALSE, fig.pos="center", message=FALSE>>=
 outbreak_dat <- dengue_dat %>%
     transmute(pid,
               sim=year,
@@ -496,7 +374,6 @@ outbreak_dat <- dengue_dat %>%
            baseline_pred=mean(sim_rate>outbreak_threshold)) %>%
     select(pid, year, outbreak_threshold) %>%
     distinct(.keep_all=TRUE)
-
 
 reference_dat <- test_dat %>%
     left_join(outbreak_dat) %>%
@@ -539,7 +416,8 @@ overall_table <- reference_dat %>%
               rel_mae = mae_pred / mae_baseline,
               win_pct = mean(win, na.rm = TRUE),
               avg_bin_pct = NA,
-              avg_log_score = NA) %>%
+              avg_log_score = NA,
+              aic=NA) %>%
     bind_rows(overall_mae) %>%
     left_join(
         pi_dat %>%
@@ -583,17 +461,28 @@ overall_table <- reference_dat %>%
                                                    "}"),
                                             formatC(100*pi_coverage,
                                                     digits=1,
+                                                    format="f")),
+              AIC = ifelse(aic==min(aic, na.rm=T),
+                                            paste0("\\textbf{",
+                                                   formatC(aic,
+                                                           digits=0,
+                                                           format="f"),
+                                                   "}"),
+                                            formatC(aic,
+                                                    digits=0,
                                                     format="f")))
 
 print(xtable(overall_table,
-             caption="Results for each model across all regions and years in the prospective prediction phase. Numbers in bold highlight which model performed best for each metric.",
+             caption="Results for each model across all regions and years in the testing phase. Numbers in bold highlight which model performed best for each metric.",
              label = "sup:overall",
-             digits = c(0,0,2,2,1,1),
-             align = c("l","l","r", "b{1cm}", "b{1.35cm}","b{1.5cm}")),
+             digits = c(0,0,2,2,1,1,0),
+             align = c("l","l","r", "b{1cm}", "b{1.35cm}","b{1.5cm}", "b{1cm}")),
       include.rownames = FALSE,
       table.placement="H",
       sanitize.text.function=identity)
+@
 
+<<annual-table, echo=FALSE, results='asis', warning=FALSE, fig.pos="center", message=FALSE>>=
 ## annual MAEs
 annual_table <- reference_dat %>%
     left_join(thai_prov_data, by = c("pid" = "FIPS")) %>%
@@ -663,14 +552,25 @@ annual_table <- reference_dat %>%
     select(-year)
 
 print(xtable(annual_table,
-             caption="Annual results for each model across all regions. Numbers in bold highlight which model performed best for each metric in each year.",
+             caption="Annual results for each model across all regions in the testing phase. Numbers in bold highlight which model performed best for each metric in each year.",
              label = "sup:annual",
              digits = c(0,0,0,0,0,2,2,1,1),
              align = "llcb{1.55cm}b{1.2cm}rb{1cm}b{1.35cm}b{1.3cm}"),
       include.rownames = FALSE,
       table.placement="H",
       sanitize.text.function=identity)
+@
 
+As displayed in Table S\ref{sup:moph}, the smallest mean absolute error (MAE) by any model for any region was for Bangkok (MOPH region 0) using the incidence-only model (MAE=0.286).
+However, because the baseline MAE for Bangkok was only slightly higher (MAE=0.289), the incidence-only model relative MAE (rMAE) was the second-largest of any region (rMAE=0.99).
+Thus, even though the incidence-only model accurately forecasted DHF incidence in Bangkok, it didn't add much value over a ten-year median, due in part to there being no outbreaks in Bangkok during the testing phase.
+
+Conversely, the incidence-only model had about twice as much error in MOPH region 12 (MAE=0.59) as in Bangkok.
+However, the baseline model had nearly three times as much error than in Bangkok (MAE=0.86), so the incidence-only rMAE for MOPH region 12 was the lowest of any model for any region (rMAE=0.69).
+Thus, despite greater absolute error from the incidence-only model forecasts, there was more added benefit for that region over the baseline forecasts than for Bangkok.
+These examples demonstrate how MAE and rMAE can be used in tandem to give a more complete evaluation of model performance.
+
+<<moph-table, echo=FALSE, results='asis', warning=FALSE, fig.pos="center", message=FALSE>>=
 ## MOPH MAEs
 moph_table <- reference_dat %>%
     left_join(thai_prov_data, by = c("pid" = "FIPS")) %>%
@@ -734,7 +634,7 @@ moph_table <- reference_dat %>%
     select(-MOPH_Admin_Code)
 
 print(xtable(moph_table,
-             caption="Regional results for each model across all years in the prospective prediction phase. Numbers in bold highlight which model performed best for each metric in each region. The regions are sorted by best model performance using relative mean absolute error (rMAE) from lowest to highest.",
+             caption="Regional results for each model across all years in the testing phase. Numbers in bold highlight which model performed best for each metric in each region. The regions are sorted by best model performance using relative mean absolute error (rMAE) from lowest to highest.",
              label = "sup:moph",
              digits = c(0,0,0,0,0,0,2,2,1,1),
              align = "llb{1.1cm}b{1.1cm}b{1.55cm}b{1.2cm}rb{1cm}b{1.35cm}b{1.3cm}"),
@@ -742,6 +642,29 @@ print(xtable(moph_table,
       table.placement="H",
       sanitize.text.function=identity)
 @
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{figure}[H]
+\includegraphics[width=\maxwidth]{figure/pred-interval-plot-wip-1} \caption{Weather, incidence, and population (WIP) model forecasts for each year of the testing phase compared to the baseline forecasts and the observed values. Forecasts for the annual dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, from the WIP model (blue triangles with gray 80\% prediction intervals), baseline forecasts (red circles), and observed values (black x's) for each province and year in the testing phase.}\label{fig:pred-interval-plot-wip}
+\end{figure}
+\end{knitrout}
+
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{figure}[H]
+\includegraphics[width=\maxwidth]{figure/rel-mae-province-1} \caption{Geographic variation in model and performance by province. \textbf{(a)} The best fitted model in the testing phase for each Thai province, which shows spatial patterns of performance. \textbf{(b)} The relative mean absolute error of the forecasts for each province from the models in (a) over the baseline forecasts. Provinces with: less error than the baseline are blue, more error than the baseline are red, and equal to the baseline are white.}\label{fig:rel-mae-province}
+\end{figure}
+\end{knitrout}
+
+The receiver operating characteristic (ROC) curves for the incidence-only and WIP model outbreak forecasts for the testing phase are both significantly above the line of no-discrimination, but are not significantly different from each other (Figure S\ref{fig:roc-wip}). The incidence-only model area under the ROC curve (AUC; Estimate: 84.2\%, 95\%CI: 78.5-89.9\%) was slightly larger than that of the WIP model AUC (82.9\%, 76.3-89.6\%). The sensitivity of the WIP model is marginally larger than that of the incidence-only model when specificity is large, suggesting that the WIP model showed very slightly better performance than the incidence-only model at larger outbreak thresholds.
+
+Alternatively, the predictive distributions samples used to make the outbreak forecasts could have been obtained by estimating parameters in a Bayesian framework, including drawing posterior samples of the dispersion parameter.
+
+\begin{knitrout}
+\definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}\begin{figure}[H]
+\includegraphics[width=\maxwidth]{figure/roc-wip-1} \caption{Comparison of receiver operating characteristic (ROC) curves by model. The ROC curve based on the incidence-only model and weather, incidence, and population (WIP) models' sensitivity and specificity on outbreak forecasts during the testing phase. Both curves are comfortably above the line of no-discrimination (dashed), indicating that their outbreak forecasts are better than random. The AUC for the WIP model (82.9\%) is a bit lower than that of the incidence-only model (84.2\%).}\label{fig:roc-wip}
+\end{figure}
+\end{knitrout}
 
 <<supplemental sheets, include=FALSE>>=
 ##### make annual sheets like those for distribution to Thai MOPH

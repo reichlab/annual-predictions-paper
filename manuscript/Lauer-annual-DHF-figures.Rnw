@@ -6,10 +6,14 @@
 library(dplyr)
 library(ggplot2)
 library(maptools)
+library(xtable)
 library(mgcv)
 library(mapproj)
+library(dengueThailand)
 library(scales)
 library(grid)
+library(lubridate)
+# devtools::install_github("krlmlr/here")
 
 opts_knit$set(root.dir = here::here())
 @
@@ -319,10 +323,15 @@ if(SAVE_FILES)
               paste0("data/prediction-interval-summary-",
                      Sys.Date(),".csv"))
 
-pi_simple <- filter(pi_dat, num_cov==1)
-outbreak_roc <- pROC::roc(pi_simple$outbreak_observed,
-                          pi_simple$outbreak_probability,
+pi_best <- filter(pi_dat, num_cov==final_model_covs)
+outbreak_roc <- pROC::roc(pi_best$outbreak_observed,
+                          pi_best$outbreak_probability,
                           ci=T)
+
+pi_other <- filter(pi_dat, num_cov!=final_model_covs)
+outbreak_roc_other <- pROC::roc(pi_other$outbreak_observed,
+                                 pi_other$outbreak_probability,
+                                 ci=T)
 
 latest_monthly <- find_recent_file("monthly-counts", "data/")
 monthly_counts <- read.csv(latest_monthly)[,-1]
@@ -335,16 +344,38 @@ annual_thai_counts <- monthly_counts %>%
               paste0("data/annual-thai-counts-",Sys.Date(),".csv"))
 @
 
-<<incidence-map, echo=FALSE, warning=FALSE, fig.lp='fig:', fig.cap="\\textbf{The temporal and spatial distribution of dengue hemorrhagic fever incidence rate in Thailand.} \\textbf{(a)} The dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, for each Thai province and season used in this study. \\textbf{(b)} The median DHF incidence rate, per 100,000 population, for each province from 2000-2014. \\textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the incidence rate for each province.", message=FALSE>>=
+<<annual-cases-graph, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="Aggregated time series of dengue hemorrhagic fever cases from 2000-2014.">>=
+thai_month_dhf <- monthly_counts %>%
+    filter(date_sick_year>=FIRST_YEAR,
+           date_sick_year<=LAST_YEAR) %>%
+    group_by(date_sick_year, date_sick_month) %>%
+    summarise(count=sum(count)) %>%
+    mutate(date_sick=ymd(paste(date_sick_year, date_sick_month, "01", sep = "-")))
+
+ggplot(data=thai_month_dhf) +
+    geom_line(aes(x=date_sick, y=count)) +
+    scale_y_continuous("Monthly DHF cases") +
+    scale_x_date("", date_breaks = "12 months",
+                 labels = date_format("%Y"),
+                 expand=c(0,0)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=.5, size=12),
+          axis.text.y = element_text(size=11),
+          axis.title = element_text(size=16),
+          panel.grid.major =  element_blank(),
+          panel.grid.minor =  element_blank())
+@
+
+<<incidence-map, echo=FALSE, warning=FALSE, fig.lp='fig:', fig.cap="The temporal and spatial distribution of annual dengue hemorrhagic fever (DHF) incidence rates in Thailand. \\textbf{(a)} The annual DHF incidence rate, per 100,000 population, for each Thai province and year used in this study. \\textbf{(b)} The median annual DHF incidence rate, per 100,000 population, for each province from 2000-2014. \\textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the annual DHF incidence rate for each province.", message=FALSE>>=
 prov_counts <- dengue_dat %>%
     filter(year<=LAST_YEAR) %>%
     group_by(year, pid) %>%
     transmute(annual_incidence = 100000*obs/population+pre_season_rate) %>%
     left_join(thai_prov_data, by=c("pid"="FIPS")) %>%
-    group_by(pid) %>%
+    group_by(province) %>%
     mutate(median_incidence = median(annual_incidence)) %>%
     ungroup() %>%
-    mutate(Province = reorder(Province,median_incidence))
+    mutate(Province = reorder(Province, median_incidence))
 
 incidence_heat_map <- ggplot(prov_counts) +
     geom_raster(aes(x=year,
@@ -356,13 +387,13 @@ incidence_heat_map <- ggplot(prov_counts) +
                                             log10(500))),
                          guide = "colorbar",
                          limits=c(0,log10(max(prov_counts$annual_incidence))),
-                         name="Incidence\nrate\n(per 100K)\n",
+                         name="Annual\nincidence\nrate\n(per 100K)\n",
                          na.value="white",
                          labels=c("1", "10", "100", "500"),
                          breaks=c(0, 1, 2, log10(500))) +
     geom_vline(aes(xintercept=2009.5)) +
     scale_x_continuous(expand=c(0,0), breaks = seq(2000,2014,2)) +
-    scale_y_discrete("Provinces sorted by\nmedian incidence rate") +
+    scale_y_discrete("Provinces sorted by median\nannual incidence rate") +
     ggtitle("a") +
     theme_bw() + xlab("") + ylab("") +
     theme(axis.text.x = element_text(size = 12),
@@ -373,6 +404,7 @@ incidence_heat_map <- ggplot(prov_counts) +
           legend.title = element_text(size = 14, face="bold"),
           legend.key.height = unit(1,"cm"),
           plot.title = element_text(size=20,hjust=-.05, face="bold"))
+# print(incidence_heat_map)
 
 inc_map <- thai_map
 
@@ -391,9 +423,9 @@ incidence_map <- ggplot(inc_map@data, aes(map_id=ID_1)) +
     expand_limits(x = thai_locs$long, y = thai_locs$lat) +
     ## use color blind friendly colors
     scale_fill_gradient(low="white", high = cbbPalette[7],
-                        name="Median\nincidence\nrate\n",
-                        breaks=seq(0, 100, 25),
-                        limits=c(0,110)) +
+                        name="Median\nannual\nincidence\nrate\n",
+                        breaks=seq(0, 120, 30),
+                        limits=c(0,120)) +
     ggtitle("b") +
     theme(axis.ticks = element_blank(),
           axis.text = element_blank(),
@@ -551,7 +583,7 @@ ggplot(data=plot_pi, aes(x=pid_rank)) +
 @
 
 <<outbreak-plot, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="\\textbf{Accuracy of outbreak prediction by incidence-only model.} \\textbf{(a)} The percentage of provinces with an outbreak each year by predicted outbreak probability quantile range from the incidence-only model. An outbreak is defined as DHF incidence greater than two standard deviations above the median DHF incidence for the past ten years. The hollow triangles indicate the percentage of provinces in each quantile range with an observed outbreak across all years and the black diamonds indicate the average predicted percentage of outbreaks. \\textbf{(b)} The incidence-only model's probability of outbreak for each province-season in the prospective phase and whether or not an outbreak was observed. The blue loess smoothed line shows the probability of observing an outbreak for a given predicted outbreak probability. \\textbf{(c)} The receiver operating characteristic (ROC) curve based on the incidence-only model's sensitivity and specificity on outbreak predictions. The area under the ROC curve (AUC) is indicated below the line of no-discrimination (dashed).">>=
-outbreak_plot_dat <- pi_simple %>%
+outbreak_plot_dat <- pi_best %>%
     mutate(pred_ob_quantile=.01*(outbreak_probability<=0.01),
            pred_ob_quantile=pred_ob_quantile+.05*(outbreak_probability<=0.05)*
                (outbreak_probability>0.01),
@@ -565,7 +597,7 @@ outbreak_plot_dat <- pi_simple %>%
               num_outbreaks=sum(outbreak_observed)) %>%
     mutate(ob_pct=num_outbreaks/num_provs)
 
-avg_outbreak_plot_dat <- pi_simple %>%
+avg_outbreak_plot_dat <- pi_best %>%
     mutate(pred_ob_quantile=.01*(outbreak_probability<=0.01),
            pred_ob_quantile=pred_ob_quantile+.05*(outbreak_probability<=0.05)*
                (outbreak_probability>0.01),
@@ -585,48 +617,34 @@ outbreak_plot <-
     ggplot(data=outbreak_plot_dat,
                         aes(x=as.factor(pred_ob_quantile),
                             y=100*ob_pct)) +
-    geom_point(aes(color=as.factor(year),
-                   size=num_provs,
-                   shape=as.factor(year)),
-               alpha=0.6,
-               position=position_dodge(0.35)) +
     geom_point(data=avg_outbreak_plot_dat,
                aes(x=as.factor(pred_ob_quantile),
                    y=100*exp_outbreaks,
-                   size=10,
-                   color=as.factor(year+1),
-                   shape=as.factor(year+1))) +
+                   shape=as.factor(year+1)),
+                   size=3) +
     geom_point(data=avg_outbreak_plot_dat,
                aes(x=as.factor(pred_ob_quantile),
                    y=100*ob_pct,
-                   size=10,
-                   color=as.factor(year),
-                   shape=as.factor(year))) +
+                   shape=as.factor(year)),
+                   size=3) +
     ggtitle("a") +
     scale_x_discrete("Forecasted outbreak probability, by quantile",
-                     labels=c("0-1%", "1-5%", "5-25%", "25-50%", "50-100%")) +
-    scale_y_continuous("Observed percentage of\nprovinces with outbreaks",
+                     labels=c("0-0.01", "0.01-0.05", "0.05-0.25", "0.25-0.50", "0.50-1.00")) +
+    scale_y_continuous("Proportion of\nprovince-years with outbreaks",
+                       limits=c(0,100),
                        breaks=seq(0,100,25),
-                       labels=c("0%", "25%", "50%", "75%", "100%")) +
-    scale_color_manual("Year",
-                       labels=c("2010", "2011", "2012", "2013", "2014",
-                                "Average", "Forecasted"),
-                       values=cbbPalette[c(2:4,6,8,1,1)]) +
-    scale_size_continuous("Number of\nprovinces") +
-    scale_shape_manual("Year",
-                       labels=c("2010", "2011", "2012", "2013", "2014",
-                                "Average", "Forecasted"),
-                       values = c(16,16,16,16,16,2,18)) +
-    # coord_fixed() +
+                       labels=c("0.00", "0.25", "0.50", "0.75", "1.00")) +
+    scale_shape_manual("",
+                       labels=c("Observed", "Forecasted"),
+                       values = c(2,18)) +
     theme_bw() +
     theme(plot.title = element_text(size=20,hjust=-.05, face="bold"),
-          legend.title = element_text(size=11),
-          legend.position = "top",
-          legend.box = "horizontal"
+          legend.text = element_text(size=20),
+          legend.position = "right"
           )
 
 pred_vs_obs_outbreak_plot <-
-    ggplot(data=pi_simple,
+    ggplot(data=pi_best,
            aes(x=outbreak_probability,
                y=outbreak_observed)) +
     geom_point(alpha=0.3) +
@@ -671,6 +689,45 @@ gridExtra::grid.arrange(outbreak_plot,
                         roc_plot,
                         layout_matrix=rbind(c(1,1),
                                             c(2,3)))
+@
+
+<<roc-wip, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="Comparison of receiver operating characteristic (ROC) curves by model. The ROC curve based on the incidence-only model and weather, incidence, and population (WIP) models' sensitivity and specificity on outbreak forecasts during the testing phase. Both curves are comfortably above the line of no-discrimination (dashed), indicating that their outbreak forecasts are better than random. The AUC for the WIP model (82.9\\%) is a bit lower than that of the incidence-only model (84.2\\%).">>=
+roc_wip_plot_dat <- data_frame(TPR=outbreak_roc_other$sensitivities,
+                               FPR=1-outbreak_roc_other$specificities,
+                               type="WIP") %>%
+    bind_rows(roc_plot_dat %>%
+                  mutate(type="Incidence-only"))
+
+ggplot() +
+    geom_point(data=roc_wip_plot_dat,
+               aes(y=TPR,
+                   x=FPR,
+                   color=type)) +
+    geom_line(data=roc_wip_plot_dat,
+              aes(y=TPR,
+                  x=FPR,
+                  color=type,
+                  linetype=type)) +
+    geom_line(aes(x=seq(0,1,length.out = 330),
+                  y=seq(0,1,length.out = 330)),
+              linetype="dashed") +
+    # geom_text(aes(label=paste("AUC = ",
+    #                           round(outbreak_roc_other$auc,3)),
+    #               x=0.75,
+    #               y=0.25)) +
+    scale_x_continuous("1 - Specificity") +
+    scale_y_continuous("Sensitivity") +
+    scale_color_manual("Model",
+                       breaks=c("Incidence-only",
+                                "WIP"),
+                       values=cbbPalette) +
+    scale_linetype_discrete("Model",
+                            breaks=c("Incidence-only",
+                                     "WIP")) +
+    # ggtitle("c") +
+    coord_fixed() +
+    theme_bw() +
+    theme(plot.title = element_text(size=20,hjust=-.05, face="bold"))
 @
 
 <<rel-mae-maps, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="\\textbf{Geographic variation in model and performance.} \\textbf{(a)} The best fitted model in the prospective phase for each Ministry of Public Health (MOPH) region, which shows spatial patterns of performance. \\textbf{(b)} The relative mean absolute error of the predictions for each MOPH region from the models in (a) over the baseline forecasts. Areas with: less error than the baseline are blue, more error than the baseline are red, and equal to the baseline are white.">>=
@@ -754,6 +811,85 @@ lay <- cbind(1,2)
 gridExtra::grid.arrange(best_moph_model_map +
                             ggtitle("a"),
                         rel_mae_moph_map +
+                            ggtitle("b"),
+                        layout_matrix=lay)
+@
+
+<<rel-mae-province, echo=FALSE, warning=FALSE, message=FALSE, fig.lp='fig:', fig.cap="Geographic variation in model and performance by province. \\textbf{(a)} The best fitted model in the testing phase for each Thai province, which shows spatial patterns of performance. \\textbf{(b)} The relative mean absolute error of the forecasts for each province from the models in (a) over the baseline forecasts. Provinces with: less error than the baseline are blue, more error than the baseline are red, and equal to the baseline are white.">>=
+## prepare data to make province-level performance maps
+best_model_prov <- final_preds_sum %>%
+    left_join(select(best_models, num_cov, model)) %>%
+    select(year, pid, ae_pred, ae_baseline, model) %>%
+    group_by(pid, model) %>%
+    mutate(rel_mae=mean(ae_pred)/mean(ae_baseline)) %>%
+    group_by(pid) %>%
+    arrange(rel_mae) %>%
+    slice(1) %>%
+    ungroup()
+
+prov_model_map <- thai_map
+prov_model_map@data <- prov_model_map@data %>%
+    left_join(best_model_prov, by = c("gns_adm1" = "pid")) %>%
+    mutate(ID_1 = dense_rank(woe_name))
+thai_locs <- fortify(prov_model_map, region="ID_1")
+
+best_prov_model_map <- ggplot(prov_model_map@data, aes(map_id=ID_1)) +
+    geom_map(aes(fill=model),
+             color = "black", map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    scale_fill_manual("Best\nfitted\nmodel",
+                      breaks=c("Fitted",
+                               "Simple"),
+                      labels=c("Weather,\nincidence,and\npopulation\n(WIP)",
+                               "Incidence\nonly"),
+                      values = cbbPalette[c(8,4)]) +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent",
+                                          colour = NA),
+          legend.key.height = unit(1, "cm"),
+          legend.position="bottom",
+          plot.title = element_text(size=20,hjust=-.05, face="bold")) +
+    coord_map(projection="mercator") +
+    xlab("") + ylab("")
+
+#### make a map of relative MAE for each province
+color_diff <- ceiling(100*max(abs(log10(best_model_prov$rel_mae))))/100
+color_max <- color_diff
+color_min <- -color_diff
+scale_max <- log10(floor(10*10^color_max)/10)
+scale_min <- log10(ceiling(10*10^color_min)/10)
+
+rel_mae_prov_map <- ggplot(prov_model_map@data, aes(map_id=ID_1)) +
+    geom_map(aes(fill=log10(rel_mae)), color = "black", map=thai_locs) +
+    expand_limits(x = thai_locs$long, y = thai_locs$lat) +
+    scale_fill_gradient2(low=cbbPalette[6], mid="white", high=cbbPalette[7],
+                         limits=c(-color_max, color_max),
+                         breaks=c(seq(scale_min, 0, length.out = 3),
+                                  seq(0, scale_max, length.out = 3)[-1]),
+                         labels=round(10^c(seq(scale_min,
+                                             0,
+                                             length.out = 3),
+                                           seq(0,
+                                             scale_max,
+                                             length.out = 3)[-1]),1),
+                         name="rMAE") +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.background = element_rect(fill = "transparent",
+                                          colour = NA),
+          legend.key.height = unit(1, "cm"),
+          legend.key.width = unit(1, "cm"),
+          legend.position="bottom",
+          plot.title = element_text(size=20,hjust=-.05, face="bold")) +
+    coord_map(projection="mercator") +
+    xlab("") + ylab("")
+
+lay <- cbind(1,2)
+
+gridExtra::grid.arrange(best_prov_model_map +
+                            ggtitle("a"),
+                        rel_mae_prov_map +
                             ggtitle("b"),
                         layout_matrix=lay)
 @

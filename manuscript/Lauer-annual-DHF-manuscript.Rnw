@@ -186,6 +186,15 @@ outbreak_quantiles <- pi_simple %>%
 total_outbreaks <- sum(pi_simple$outbreak_observed)
 @
 
+\section*{Significance statement}
+
+Dengue hemorrhagic fever poses a major problem for public health officials in Thailand.
+The number and location of cases vary dramatically from year-to-year, which makes planning prevention and treatment activities prior to the dengue season difficult.
+We develop statistical models with biologically-motivated covariates to make forecasts for each Thai province every year.
+The forecasts from our models have less error than those of a baseline model on out-of-sample data.
+Furthermore, the forecasts from a model based on incidence occurring prior to the start of the rainy season successfully order provinces by outbreak risk.
+These early, accurate forecasts of dengue hemorrhagic fever incidence could help public health officials determine where to allocate their resources in the future.
+
 \section*{Abstract}
 
 Dengue hemorrhagic fever (DHF), a severe manifestation of dengue viral infection causing severe bleeding, organ impairment, and even death, affects 40,000 people on average each year in Thailand.
@@ -201,7 +210,9 @@ This work illustrates that accurate forecasts of dengue risk are possible in a p
 \begin{knitrout}
 \definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
 \begin{figure}
-\includegraphics[width=\maxwidth]{figure/incidence-map-1} \caption{\textbf{The temporal and spatial distribution of the annual dengue hemorrhagic fever incidence rate in Thailand.} \textbf{(a)} The dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, for each Thai province and year in this study. \textbf{(b)} The median annual DHF incidence rate, per 100,000 population, for each province from 2000-2014. \textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the annual incidence rate for each province.}\label{fig:incidence-map}
+\centering
+\includegraphics[width=0.8\linewidth]{figure/incidence-map-1}
+\caption{The temporal and spatial distribution of annual dengue hemorrhagic fever (DHF) incidence rates in Thailand. \textbf{(a)} The annual DHF incidence rate, per 100,000 population, for each Thai province and year used in this study. \textbf{(b)} The median annual DHF incidence rate, per 100,000 population, for each province from 2000-2014. \textbf{(c)} The coefficient of variation (standard deviation divided by the mean) of the annual DHF incidence rate for each province.}\label{fig:incidence-map}
 \end{figure}
 \end{knitrout}
 
@@ -226,7 +237,7 @@ Groups that employed methods relying solely on functions of incidence performed 
 
 Whether an infectious disease spreads within a population depends on the transmission rate of the disease and the number of susceptible individuals \cite{Keeling2007, Kermack1927}, thus long-term forecasting models for DHF incidence may need to account for climatic factors that could affect transmission as well as population susceptibility.
 Climatic factors, such as temperature, rainfall, and humidity, may impact both the prevalence and distribution of the dengue vector, the \textit{Aedes} mosquito \cite{Juliano2002, Scott2000, Brady2013}, as well as the transmission efficiency of dengue virus \cite{Bhatt2013, Johansson2009a}.
-Such climatic factors vary significantly across Thailand \cite{Campbell2013}.
+During the low dengue season, these climatic factors may be indicative of incidence in the following high dengue season, perhaps due to their role in vector survival and larval development \cite{Campbell2013}.
 Even in ideal conditions for disease transmission, there needs to be a sufficiently large susceptible population for a disease to spread.
 Dengue has complex immunological dynamics that make tracking the number of susceptible individuals within a population difficult.
 The vast majority of first dengue infections are asymptomatic, while second infections are more likely to result in severe outcomes such as DHF and DSS \cite{Burke1988, Endy2002}.
@@ -258,34 +269,33 @@ Hence, all ``annual'' forecasts are for DHF incidence between April and December
 Across the 15 years used in this study, \Sexpr{round(100*sum(monthly_counts$count[monthly_counts$date_sick_month>3])/sum(monthly_counts$count))}\% of the DHF cases occurred between April and December of each year.
 
 We used leave-one-year-out cross validation to predict the DHF incidence across the 760 province-years in the training phase (76 provinces for each year from 2000-2009).
-Of the \Sexpr{cv_models} candidate models considered, the model with the smallest leave-one-year-out-cross-validated mean absolute error (CV MAE) included five covariates: pre-season (January-March) incidence rate, total January rainfall, mean January temperature, mean low-season (November-March) temperature, and population size (Figure \ref{fig:final-covs}).
+Of the \Sexpr{cv_models} candidate models considered, the model with the smallest leave-one-year-out-cross-validated mean absolute error (CV MAE) included five covariates: pre-season (January-March) incidence rate, total January rainfall, mean January temperature, mean temperature during the low dengue season (November-March, henceforth 'low-season'), and population size (Figure \ref{fig:final-covs}).
 In order to avoid overfitting on the training phase, we also chose the model with the fewest covariates within one standard deviation of the minimum CV MAE \cite{Hastie2009}.
 Using this procedure, we selected a model that included only pre-season incidence.
 We refer to these models as the `weather, incidence, and population (WIP) model' and `incidence-only model', respectively.
-%
-% \begin{table}[h]
-%     \centering
-%     \begin{tabular}{ l p{5in} }
-%         \hline
-%         Covariate Type & Reason for inclusion \\
-%         \hline \hline
-%         Incidence & Large dengue outbreaks may temporarily deplete the susceptible population \cite{Reich2013, Wearing2006, Adams2006}. Larger dengue seasons often start earlier \cite{Campbell2013}. \\ \hline
-%         Demographics & Higher population density may facilitate dengue transmission \cite{Teixeira2002}. \\ \hline
-%         Humidity & Humidity may improve the survival rate of \textit{Aedes} mosquito eggs \cite{Juliano2002, Campbell2013}. \\ \hline
-%         Rainfall & Rainfall is essential for \textit{Aedes} mosquito breeding and may have a positive effect on dengue transmission \cite{Bhatt2013, Scott2000}. \\ \hline
-%         Temperature & Temperatures must be warm enough for \textit{Aedes} mosquitoes to imbibe blood \cite{Brady2013}, but cool enough for optimal survival of eggs \cite{Juliano2002}. \\ \hline
-%         \end{tabular}
-%     \caption{Justifications for types of covariates considered for inclusion prior to model selection}
-%     \label{tab:reason}
-% \end{table}
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{ l p{5in} }
+        \hline
+        Covariate Type & Reason for inclusion \\
+        \hline \hline
+        Incidence & Large dengue outbreaks may temporarily deplete the susceptible population \cite{Reich2013, Wearing2006, Adams2006}. Larger dengue seasons often start earlier \cite{Campbell2013}. \\ \hline
+        Demographics & Higher population density may facilitate dengue transmission \cite{Teixeira2002}. \\ \hline
+        Humidity & Humidity may improve the survival rate of \textit{Aedes} mosquito eggs \cite{Juliano2002, Campbell2013}. \\ \hline
+        Rainfall & Rainfall is essential for \textit{Aedes} mosquito breeding and may have a positive effect on dengue transmission \cite{Bhatt2013, Scott2000}. \\ \hline
+        Temperature & Temperatures must be warm enough for \textit{Aedes} mosquitoes to imbibe blood \cite{Brady2013}, but cool enough for optimal survival of eggs \cite{Juliano2002}. \\ \hline
+        \end{tabular}
+    \caption{Justifications for types of covariates considered for inclusion prior to model selection}
+    \label{tab:reason}
+\end{table}
 
 \begin{knitrout}
 \definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
 \begin{figure}
-{\centering \includegraphics[width=0.8\linewidth]{figure/final-covs-1}
-
-}
-\caption{\textbf{The covariate fit curves for the weather, incidence, and population (WIP) model.} The solid lines represent the average association between each covariate in the WIP model and annual dengue hemorrhagic fever (DHF) incidence per 100,000 population, fixing all other covariates at their mean. The dashed lines are the confidence intervals of each association, two standard errors above and below the mean as derived from the covariance matrix of the model fit. The covariates are arranged by performance in the Wald test from largest reduction in deviance \textbf{(a)} to smallest reduction in deviance \textbf{(e)}.}
+\centering
+\includegraphics[width=0.8\linewidth]{figure/final-covs-1}[t]
+\caption{Weather, incidence, and population (WIP) model covariate fit curves. The solid lines represent the average association between each covariate in the WIP model and annual dengue hemorrhagic fever (DHF) incidence per 100,000 population during the training phase, fixing all other covariates at their mean. The dashed lines are the confidence intervals of each association, defined as two standard errors above and below the mean association. (A-E) The covariates are arranged by performance in the Wald test from largest reduction in deviance \textbf{(a)} to smallest reduction in deviance \textbf{(e)}.}
 \label{fig:final-covs}
 \end{figure}
 \end{knitrout}
@@ -306,8 +316,9 @@ Conversely, the WIP model performed especially poorly in Bangkok, which has cons
 \begin{knitrout}
 \definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
 \begin{figure}
-\includegraphics[width=\maxwidth]{figure/pred-interval-plot-1}
-\caption{\textbf{The incidence-only model forecasts for each year of the testing phase compared to those of the baseline forecasts and the observed values.} Forecasts for dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, from the incidence-only model (blue triangles with gray 80\% prediction intervals), baseline forecasts (red circles), and observed values (black x's) for each province and year in the testing phase.}
+\centering
+\includegraphics[width=0.8\linewidth]{figure/pred-interval-plot-1}
+\caption{Incidence-only model forecasts for each year of the testing phase compared to the baseline forecasts and the observed values. Forecasts for the annual dengue hemorrhagic fever (DHF) incidence rate, per 100,000 population, from the incidence-only model (blue triangles with gray 80\% prediction intervals), baseline forecasts (red circles), and observed values (black x's) for each province and year in the testing phase.}
 \label{fig:pred-interval-plot}
 \end{figure}
 \end{knitrout}
@@ -315,8 +326,9 @@ Conversely, the WIP model performed especially poorly in Bangkok, which has cons
 \begin{knitrout}
 \definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
 \begin{figure}
-\includegraphics[width=\maxwidth]{figure/rel-mae-maps-1}
-\caption{\textbf{Model performance by geographic region.} \textbf{(a)} The best fitted model in the testing phase for each Thailand Ministry of Public Health (MOPH) region, which shows spatial patterns of performance. \textbf{(b)} The relative mean absolute error (rMAE) of the forecasts for each MOPH region from the models in (a) over the baseline forecasts derived from the ten-year median DHF incidence rate. Areas with: less MAE than the baseline are blue, more MAE than the baseline are red, and MAE equal to the baseline are white.}\label{fig:rel-mae-maps}
+\centering
+\includegraphics[width=0.8\linewidth]{figure/rel-mae-maps-1} \caption{Geographic variation in model and performance. \textbf{(a)} The best fitted model in the testing phase for each Ministry of Public Health (MOPH) region, which shows spatial patterns of performance. \textbf{(b)} The relative mean absolute error (rMAE) of the forecasts for each MOPH region from the models in (a) over the baseline forecasts, i.e. the two northernmost MOPH regions show the rMAE of the WIP model forecasts, while the rest show the rMAE of the incidence-only model forecasts. Areas with: less error than the baseline are blue, more error than the baseline are red, and equal to the baseline are white.}
+\label{fig:rel-mae-maps}
 \end{figure}
 \end{knitrout}
 
@@ -331,8 +343,8 @@ The incidence-only model correctly ordered the outbreak probabilities of any two
 \begin{knitrout}
 \definecolor{shadecolor}{rgb}{0.969, 0.969, 0.969}\color{fgcolor}
 \begin{figure}
-\includegraphics[width=\maxwidth]{figure/outbreak-plot-1}
-\caption{\textbf{The accuracy of outbreak forecasts by the incidence-only model.} \textbf{(a)} The percentage of provinces with an outbreak each year by predicted outbreak probability quantile range from the incidence-only model. An outbreak is defined as DHF incidence greater than two standard deviations above the median DHF incidence for the past ten years. The triangles indicate the percentage of provinces in each quantile range with an observed outbreak across all years and the diamonds indicate the mean predicted outbreak probability for each quantile range across all years. \textbf{(b)} The incidence-only model's probability of outbreak for each province-year in the prospective phase and whether or not an outbreak was observed. The blue loess smoothed line shows the probability of observing an outbreak for a given predicted outbreak probability. \textbf{(c)} The receiver operating characteristic (ROC) curve based on the incidence-only model's sensitivity and specificity on outbreak predictions. The area under the ROC curve (AUC) is indicated below the line of no-discrimination (dashed).}\label{fig:outbreak-plot}
+\centering
+\includegraphics[width=0.8\linewidth]{figure/outbreak-plot-1} \caption{The performance of outbreak forecasts by the incidence-only model. \textbf{(a)} The proportion of province-years that observed an outbreak by their forecasted outbreak probability, which are binned into quantiles. An outbreak is defined as an annual dengue hemorrhagic fever (DHF) incidence rate greater than two standard deviations above the median annual DHF incidence rate for the past ten years. For each forecasted outbreak quantile, the black diamonds indicate the expected proportion of province-years with an outbreak based on incidence-only model forecasts and the hollow triangles indicate the observed proportion of province-years with an outbreak. \textbf{(b)} The forecasted probability of an outbreak for each province-year in the testing phase and whether or not an outbreak was observed. The blue loess smoothed line shows the probability of observing an outbreak for a given forecasted outbreak probability from the incidence-only model. \textbf{(c)} The receiver operating characteristic (ROC) curve based on the incidence-only model's sensitivity and specificity on outbreak forecasts. The area under the ROC curve (AUC) is indicated below the line of no-discrimination (dashed).}\label{fig:outbreak-plot}
 \end{figure}
 \end{knitrout}
 
@@ -367,7 +379,7 @@ This operational interpretation of the results emphasizes the importance of the 
 The finding that \Sexpr{round(100*outbreak_roc$auc)}\% of the time our model would correctly rank two randomly-selected province-years by outbreak probability directly supports the use of these forecasts in practice.
 
 Making timely forecasts of infectious disease incidence is a challenging but important task.
-Accurate forecasts could play an important role in implementing targeted interventions designed to reduce transmission.
+Accurate forecasts could play an important role in implementing targeted interventions designed to reduce transmission, such as in helping to determine the location and timing of vector control activities and the mobilization of additional resources, as well as for reporting risk of infection to the public.
 Additionally, they could play a critical role in a systematic study of how well different interventions prevent or reduce the size of disease outbreaks.
 Collaborative efforts between public health agencies and academic- or industry-based teams with predictive modeling expertise are critical to helping propel this field forward.
 With the rapid growth and maturation of disease surveillance systems worldwide, developing our understanding of the best methods for creating and evaluating forecasts of infectious disease should continue to be a global health priority.
@@ -383,7 +395,8 @@ These data consist of temperature and humidity measurements from weather station
 For all provinces, we downloaded monthly temperature and rainfall data on 0.5x0.5 latitude-longitude resolution from the Earth System Research Laboratory (ESRL) at NOAA \cite{Fan2008, Adler2003}.
 
 For the NOAA and NCDC weather station data, we found the most consistently reported weather station for each province and extracted the daily maximum and minimum temperature, maximum humidity, and rainfall.
-We aggregated these measures into monthly covariates for maximum, minimum, and mean temperature, maximum and mean humidity, and maximum and total rainfall across the low-season, January, February, and March.
+We aggregated these measures into monthly covariates for maximum, minimum, and mean temperature, maximum and mean humidity, and maximum and total rainfall across January, February, and March.
+We also aggregated weather covariates across the ``low season'', from November through March, when fewer DHF cases have occurred historically, on average. The low season aligns with the dry season in Thailand, which has reduced temperatures and precipitation as compared to the high dengue season, from April through October, which corresponds with the rainy season.
 
 We removed any covariates for which more than half of the aggregated observations from one source were missing.
 For example with NOAA data, if 263 province-years (half of 35 provinces for 15 years) of observations were missing for a covariate, it was removed; as was the case for low-season minimum and maximum temperature.
