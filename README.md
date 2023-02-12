@@ -1,4 +1,6 @@
 # annual-predictions-paper
+Code and data behind ["Prospective forecasts of annual dengue hemorrhagic fever incidence in Thailand, 2010–2014" by Lauer et al](https://doi.org/10.1073/pnas.1714457115), published in PNAS in 2018.
+
 In order to re-run this experiment, please follow these steps:
 1) download this repository by pressing the green button in the upper right-hand corner
 2) unzip the downloaded folder
